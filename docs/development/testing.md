@@ -13,7 +13,7 @@
   `pythonpath` check adds a nixpkgs Python package as a native build input
   and checks that PYTHONPATH is clear once the builds have run pip.
 - `nix flake check --all-systems --no-build` evaluates the checks for
-  x86_64-linux and aarch64-linux.
+  x86_64-linux, aarch64-linux and aarch64-darwin.
 - `tests/lock-run.sh`, the CI job `conformance-relock`, runs the lock
   against the network on a copy of each fixture, and on a lockfile kept
   outside a fixture, and compares each result with the committed lockfile

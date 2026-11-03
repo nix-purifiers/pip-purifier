@@ -7,12 +7,14 @@
 set -euo pipefail
 
 cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier
+# The fixtures are locked for every system the flake's checks build on.
+systems=(--system x86_64-linux --system aarch64-linux --system aarch64-darwin)
 
 lock() {
   local fixture=$1
   shift
   echo "== $fixture" >&2
-  (cd "tests/fixtures/$fixture" && "$cli" lock "$@")
+  (cd "tests/fixtures/$fixture" && "$cli" lock "${systems[@]}" "$@")
 }
 
 lock project

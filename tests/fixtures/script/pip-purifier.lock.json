@@ -17,7 +17,7 @@
       "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl"
     }
   ],
-  "hash": "sha256-7M3uRp2FZ7lPlBYCQST49/To+vRmTYKJul5EkiqvO/Q=",
+  "hash": "sha256-mZOnaYf+s/SiaMF1c1QTsQlpKB6acRyjSIyBunUQeBk=",
   "inputs": {
     "app.py": "d85b07293bcb6e9bcc9f87533064361007b2e032015faf512338637d238ce4db"
   },
@@ -26,6 +26,10 @@
     "programs": []
   },
   "pins": {
+    "aarch64-darwin": [
+      "packaging==25.0",
+      "six==1.17.0"
+    ],
     "aarch64-linux": [
       "packaging==25.0",
       "six==1.17.0"

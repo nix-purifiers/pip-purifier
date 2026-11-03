@@ -254,8 +254,10 @@ itself comes from your editor setup, such as nixpkgs' `pyright`.
   lockfile's diff before you commit it.
 - **"was made for Python …"**. Pass `buildPipProject` the `python` of the
   version that the lock names, or relock with `--python`.
-- **"has no lock for <system>"**. The lock covers x86_64-linux and
-  aarch64-linux. Relock with `--system` for another.
+- **"has no lock for <system>"**. The lock covers x86_64-linux,
+  aarch64-linux and the system it ran on. Relock with `--system` for every
+  system it should cover, such as `--system x86_64-linux --system
+  aarch64-linux --system aarch64-darwin`.
 
 ## Supported language repositories
 
@@ -283,10 +285,13 @@ pip-purifier locks what pip installs from:
 - sdists, which pip builds with the build requirements that the lock run
   recorded.
 
-A lock covers x86_64-linux and aarch64-linux, with the wheels of the Python
-version that the lock run used. The lockfile records URLs without their
-credentials, so a private index needs a `fetchers.fetchurl` that supplies
-them, such as nixpkgs' `fetchurl` with `netrcPhase`.
+A lock covers x86_64-linux, aarch64-linux and the system it runs on (so
+aarch64-darwin on a Mac), or the systems `--system` names and the one it
+runs on, with the wheels of the Python version that the lock run used; on
+aarch64-darwin, the wheels that macOS 14, the oldest macOS of nixpkgs,
+runs. The lockfile records URLs without their credentials, so a private
+index needs a `fetchers.fetchurl` that supplies them, such as nixpkgs'
+`fetchurl` with `netrcPhase`.
 
 ## Examples
 

@@ -11,9 +11,10 @@
 # of a package the lockfile lacks, which has to name `pip-purifier lock`.
 #
 # The network is cut with `unshare -rn`, or `sudo unshare -n` where user
-# namespaces need root. Where neither works, such as in a sandbox whose
-# proxy refuses every host, the commands run as they are. In every case
-# the loop first checks that pypi.org cannot be reached.
+# namespaces need root. macOS has no network namespaces, so there every
+# proxy points at a closed port. Where nothing works, such as in a sandbox
+# whose proxy refuses every host, the commands run as they are. In every
+# case the loop first checks that pypi.org cannot be reached.
 set -euo pipefail
 
 cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier
@@ -46,6 +47,9 @@ cut() {
     unshare -rn env NIX_REMOTE=daemon "$@"
   elif sudo -n unshare -n true 2> /dev/null; then
     sudo -n unshare -n sudo -n -u "$(id -un)" env "PATH=$PATH" "HOME=$HOME" NIX_REMOTE=daemon "$@"
+  elif [ "$(uname -s)" = Darwin ]; then
+    env HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 \
+      http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 all_proxy=http://127.0.0.1:9 "$@"
   else
     "$@"
   fi
@@ -60,7 +64,8 @@ if .venv/bin/python -c 'import urllib.request; urllib.request.urlopen("https://p
   exit 1
 fi
 [ "$(.venv/bin/greet)" = "hello attrs=25.3.0 docopt=0.6.2 yaml=6.0.3" ]
-sed -i 's/hello/howdy/' src/greet/__init__.py
+sed -i.orig 's/hello/howdy/' src/greet/__init__.py
+rm src/greet/__init__.py.orig
 [ "$(.venv/bin/greet)" = "howdy attrs=25.3.0 docopt=0.6.2 yaml=6.0.3" ]
 "$cli" pip --python .venv/bin/python list | grep -q '^PyYAML *6.0.3'
 if "$cli" pip --python .venv/bin/python install rich 2> missing.txt; then

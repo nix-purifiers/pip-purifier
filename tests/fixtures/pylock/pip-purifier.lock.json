@@ -4,7 +4,7 @@
     "pylock.toml"
   ],
   "artifacts": [],
-  "hash": "sha256-iINWP/pp9nqtNgXL5Vzg8pgSZgtLEj69yvJ1h1RL2Tk=",
+  "hash": "sha256-k52uKyxXHIIgITrA+ORpYHJwRpbyb2wl5vyVwd2k4I4=",
   "inputs": {
     "pylock.toml": "dd149a6f15a9909dd5078dc9afc8577e7e03d68b46c6c3eeeefcf403e28a3c69"
   },
@@ -13,6 +13,7 @@
     "programs": []
   },
   "pins": {
+    "aarch64-darwin": [],
     "aarch64-linux": [],
     "x86_64-linux": []
   },

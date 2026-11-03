@@ -175,11 +175,25 @@ let
   }
   // fetchers;
   fetch = purifier.fetchEntry fetchArgs;
-  compatible = purifier.wheels {
-    pythonVersion = checked.python;
-    inherit arch;
-    glibcVersion = lib.versions.majorMinor (lib.getVersion stdenv.cc.libc);
-  };
+  compatible = purifier.wheels (
+    {
+      pythonVersion = checked.python;
+    }
+    // (
+      if stdenv.hostPlatform.isDarwin then
+        {
+          # macOS wheel tags name the CPU arm64, and the oldest macOS that a
+          # wheel runs on, which is at most nixpkgs' darwinMinVersion.
+          arch = "arm64";
+          macosVersion = stdenv.hostPlatform.darwinMinVersion;
+        }
+      else
+        {
+          inherit arch;
+          glibcVersion = lib.versions.majorMinor (lib.getVersion stdenv.cc.libc);
+        }
+    )
+  );
 
   isFile = entry: entry ? url;
   fileName = entry: baseNameOf entry.path;

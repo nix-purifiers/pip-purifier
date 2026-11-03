@@ -28,10 +28,16 @@ The lock run then:
 6. for every package version any system uses, fetches a wheel for each
    system's CPU, or the sdist when no such wheel exists.
 
+The systems are those `--system` names, or x86_64-linux, aarch64-linux and
+the system the lock runs on, so a lock on a Mac also covers aarch64-darwin;
+the system the lock runs on is always among them.
 A relock keeps the files of the existing lockfile: the proxy lists only
 those files for each package they cover. `update` drops them for the named
 packages, or for every package. The lockfile is written with sorted keys,
-so it does not depend on the system the lock ran on.
+so for the same systems it does not depend on the system the lock ran on,
+except for the files pip picks for that system itself (on a Mac, for the
+macOS version it runs) and for the environment markers, which every
+system's resolve evaluates as the lock host does.
 
 ## The lockfile
 
@@ -65,8 +71,8 @@ CPU with its `systems`, the local projects as `outputs`, and the reasons the
 lockfile cannot be used as `problems`. `buildPipProject` passes it to the
 library's `checkLock`, then checks the system and the Python version, and
 takes this system's downloads from `entriesFor`, of which it keeps the
-wheels that the build's glibc and Python run. The library's `fetchEntry`
-and `tree` fetch them with `fetchers`.
+wheels that the build's glibc (on macOS, nixpkgs' oldest macOS) and Python
+run. The library's `fetchEntry` and `tree` fetch them with `fetchers`.
 
 ## The offline install (`nix/lib/offline.py`)
 

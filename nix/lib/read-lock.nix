@@ -50,10 +50,15 @@ let
   ];
 
   # The Nix system of each CPU that a lock covers, as wheel platform tags
-  # name it.
+  # name it: Linux tags, and macOS tags, where a universal2 wheel holds
+  # arm64 too.
   cpus = {
     x86_64 = "x86_64-linux";
     aarch64 = "aarch64-linux";
+  };
+  macosCpus = {
+    arm64 = "aarch64-darwin";
+    universal2 = "aarch64-darwin";
   };
 
   hashOf =
@@ -76,7 +81,10 @@ let
       systems = lib.unique (
         lib.concatMap (
           platform:
-          lib.concatMap (cpu: lib.optional (lib.hasSuffix "_${cpu}" platform) cpus.${cpu}) (attrNames cpus)
+          let
+            table = if lib.hasPrefix "macosx_" platform then macosCpus else cpus;
+          in
+          lib.concatMap (cpu: lib.optional (lib.hasSuffix "_${cpu}" platform) table.${cpu}) (attrNames table)
         ) platforms
       );
     in

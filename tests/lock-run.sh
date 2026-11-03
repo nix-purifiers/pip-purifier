@@ -10,13 +10,15 @@ set -euo pipefail
 cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+# The fixtures are locked for every system the flake's checks build on.
+systems=(--system x86_64-linux --system aarch64-linux --system aarch64-darwin)
 
 check() {
   local fixture=$1
   shift
   echo "== $fixture" >&2
   cp -r "tests/fixtures/$fixture" "$work/$fixture"
-  (cd "$work/$fixture" && "$cli" lock "$@")
+  (cd "$work/$fixture" && "$cli" lock "${systems[@]}" "$@")
   if ! cmp "tests/fixtures/$fixture/pip-purifier.lock.json" "$work/$fixture/pip-purifier.lock.json"; then
     diff "tests/fixtures/$fixture/pip-purifier.lock.json" "$work/$fixture/pip-purifier.lock.json" >&2 || true
     echo "the lock run did not reproduce the lockfile of $fixture" >&2
@@ -36,6 +38,6 @@ echo "== hashed, with the lockfile outside the project" >&2
 mkdir "$work/external"
 cp tests/fixtures/hashed/requirements.txt "$work/external/"
 cp tests/fixtures/hashed/pip-purifier.lock.json "$work/external.lock.json"
-(cd "$work/external" && "$cli" lock --lockfile ../external.lock.json)
+(cd "$work/external" && "$cli" lock "${systems[@]}" --lockfile ../external.lock.json)
 test ! -e "$work/external/pip-purifier.lock.json"
 cmp tests/fixtures/hashed/pip-purifier.lock.json "$work/external.lock.json"

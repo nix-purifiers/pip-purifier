@@ -184,6 +184,13 @@ def serve_replays(inputs, tmp, env):
     for key in ("no_proxy", "NO_PROXY"):
         env.pop(key, None)
     env.update(http_proxy=address, https_proxy=address, HTTP_PROXY=address, HTTPS_PROXY=address, PIP_CERT=ca)
+    # On macOS pip checks certificates with the system's verifier, which
+    # refuses the ones mitm-cache makes: they name no extended key usage.
+    # The proxy serves only the locked files, which Nix fetched by hash, so
+    # there pip takes the replayed hosts without the check.
+    https = os.path.join(replay, "https")
+    if sys.platform == "darwin" and os.path.isdir(https):
+        env["PIP_TRUSTED_HOST"] = " ".join(sorted(os.listdir(https)))
     return process
 
 

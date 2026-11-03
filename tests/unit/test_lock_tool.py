@@ -11,6 +11,7 @@ import os
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.request
 
 import pip_purifier as pp
@@ -34,6 +35,28 @@ class Wheels(unittest.TestCase):
         self.assertFalse(pp.wheel_runs_on("x-1.0-cp314-cp314-macosx_11_0_arm64.whl", "aarch64", "3.14"))
         self.assertFalse(pp.wheel_runs_on("x-1.0-cp314-cp314-musllinux_1_2_x86_64.whl", "x86_64", "3.14"))
 
+    def test_runs_on_macos(self):
+        # arm64 stands for aarch64-darwin: macOS 11 to 14, and universal2.
+        self.assertTrue(pp.wheel_runs_on("pyyaml-6.0.3-cp314-cp314-macosx_11_0_arm64.whl", "arm64", "3.14"))
+        self.assertTrue(pp.wheel_runs_on("x-1.0-cp314-cp314-macosx_14_0_arm64.whl", "arm64", "3.14"))
+        self.assertTrue(pp.wheel_runs_on("x-1.0-cp314-cp314-macosx_10_9_universal2.whl", "arm64", "3.14"))
+        self.assertTrue(pp.wheel_runs_on("six-1.17.0-py2.py3-none-any.whl", "arm64", "3.14"))
+        self.assertFalse(pp.wheel_runs_on("x-1.0-cp314-cp314-macosx_15_0_arm64.whl", "arm64", "3.14"))
+        self.assertFalse(pp.wheel_runs_on("x-1.0-cp314-cp314-macosx_10_13_x86_64.whl", "arm64", "3.14"))
+        self.assertFalse(pp.wheel_runs_on("x-1.0-cp314-cp314-manylinux_2_28_aarch64.whl", "arm64", "3.14"))
+        self.assertFalse(pp.wheel_runs_on("x-1.0-cp314-cp314-macosx_11_0_arm64.whl", "arm64", "3.13"))
+
+    def test_current_system(self):
+        def on(sysname, machine):
+            with unittest.mock.patch.object(pp.os, "uname", return_value=os.uname_result((sysname, "h", "r", "v", machine))):
+                return pp.current_system()
+
+        self.assertEqual(on("Linux", "x86_64"), "x86_64-linux")
+        self.assertEqual(on("Linux", "aarch64"), "aarch64-linux")
+        self.assertEqual(on("Darwin", "arm64"), "aarch64-darwin")
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            on("Darwin", "x86_64")
+
     def test_dist_name_version(self):
         self.assertEqual(pp.dist_name_version("Flit_Core-3.12.0-py3-none-any.whl"), ("flit-core", "3.12.0"))
         self.assertEqual(pp.dist_name_version("docopt-0.6.2.tar.gz"), ("docopt", "0.6.2"))
@@ -45,6 +68,12 @@ class Wheels(unittest.TestCase):
         self.assertIn("manylinux_2_28_aarch64", args)
         self.assertEqual(args[args.index("--python-version") + 1], "3.14")
         self.assertIn("cp314", args)
+        macos = pp.platform_args("arm64", "3.14")
+        self.assertIn("macosx_14_0_arm64", macos)
+        self.assertIn("macosx_11_0_universal2", macos)
+        self.assertIn("macosx_10_4_universal2", macos)
+        self.assertNotIn("macosx_15_0_arm64", macos)
+        self.assertFalse(any("linux" in arg for arg in macos))
 
 
 class Urls(unittest.TestCase):

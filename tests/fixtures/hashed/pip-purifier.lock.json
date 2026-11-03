@@ -11,7 +11,7 @@
       "url": "https://files.pythonhosted.org/packages/76/c6/c88e154df9c4e1a2a66ccf0005a88dfb2650c1dffb6f5ce603dfbd452ce3/idna-3.10-py3-none-any.whl"
     }
   ],
-  "hash": "sha256-32vvs0O8xo7wWQexCyxA/ipCVjaTF3KisULWRBvEq4s=",
+  "hash": "sha256-X5QuaSRorimSpomMuW8wXcf2O2AbWYoZIeOs/6S7xb0=",
   "inputs": {
     "requirements.txt": "e8d8bd5db88d920a25245d76234dfaaf26d78143a47c0476b4b40f5a07dfc709"
   },
@@ -20,6 +20,9 @@
     "programs": []
   },
   "pins": {
+    "aarch64-darwin": [
+      "idna==3.10"
+    ],
     "aarch64-linux": [
       "idna==3.10"
     ],

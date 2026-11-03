@@ -49,13 +49,27 @@ PIP = [sys.executable, "-m", "pip"]
 PYTHON = os.environ["PIP_PURIFIER_PYTHON"]
 NIXPKGS = os.environ["PIP_PURIFIER_NIXPKGS"]
 
-# The Nix systems a lockfile covers, with the CPU name of their wheel tags.
-SYSTEMS = {"x86_64-linux": "x86_64", "aarch64-linux": "aarch64"}
+# The Nix systems a lockfile can cover, with the CPU name of their wheel
+# tags: Linux's tags name the 64-bit Arm CPU aarch64, macOS's arm64.
+SYSTEMS = {"x86_64-linux": "x86_64", "aarch64-linux": "aarch64", "aarch64-darwin": "arm64"}
+
+# The systems a lockfile covers when `--system` names none, with the
+# system the lock runs on.
+DEFAULT_SYSTEMS = ["x86_64-linux", "aarch64-linux"]
 
 # The manylinux glibc versions a lock run asks for. A newer glibc runs
 # wheels for every older one; the Nix build keeps the wheels its own glibc
 # runs (`wheels` of the purifier library).
 GLIBC_MINORS = range(5, 45)
+
+# The macOS platform tags a lock run asks for on aarch64-darwin, as
+# packaging.tags.mac_platforms((14, 0), "arm64") lists them: the arm64 and
+# universal2 wheels of macOS 11 to 14, and the universal2 wheels that name
+# a macOS 10 release for their x86_64 half. 14.0 is nixpkgs'
+# darwinMinVersion, which the Nix build gives `wheels`.
+MACOS_PLATFORMS = [f"macosx_{n}_0_{f}" for n in range(14, 10, -1) for f in ("arm64", "universal2")] + [
+    f"macosx_10_{n}_universal2" for n in range(16, 3, -1)
+]
 
 
 def log(message):
@@ -322,7 +336,8 @@ def dist_name_version(name):
 
 def wheel_runs_on(name, arch, python):
     """Whether a wheel installs with CPython `python` ("3.14") on Linux for
-    `arch`, with any glibc. The Nix build applies its own glibc."""
+    `arch`, with any glibc, or on macOS for "arm64", at one of
+    MACOS_PLATFORMS. The Nix build applies its own glibc."""
     tags = wheel_tags(name)
     if not tags:
         return False
@@ -340,6 +355,8 @@ def wheel_runs_on(name, arch, python):
         return abi in (cp, cp + "t") and tag == cp
 
     def platform_ok(tag):
+        if arch == "arm64":
+            return tag == "any" or tag in MACOS_PLATFORMS
         return tag == "any" or (tag.endswith("_" + arch) and tag.startswith(("manylinux", "linux")))
 
     return any(platform_ok(p) for p in platforms) and any(python_ok(t, a) for t in pythons for a in abis)
@@ -348,12 +365,15 @@ def wheel_runs_on(name, arch, python):
 def platform_args(arch, python):
     major, minor = python.split(".")
     args = ["--only-binary=:all:", "--python-version", python, "--implementation", "cp", "--abi", f"cp{major}{minor}", "--abi", "abi3", "--abi", "none"]
-    platforms = [f"manylinux_2_{n}_{arch}" for n in GLIBC_MINORS] + [
-        f"manylinux1_{arch}",
-        f"manylinux2010_{arch}",
-        f"manylinux2014_{arch}",
-        f"linux_{arch}",
-    ]
+    if arch == "arm64":
+        platforms = MACOS_PLATFORMS
+    else:
+        platforms = [f"manylinux_2_{n}_{arch}" for n in GLIBC_MINORS] + [
+            f"manylinux1_{arch}",
+            f"manylinux2010_{arch}",
+            f"manylinux2014_{arch}",
+            f"linux_{arch}",
+        ]
     for p in platforms:
         args += ["--platform", p]
     return args
@@ -361,10 +381,11 @@ def platform_args(arch, python):
 
 def current_system():
     machine = os.uname().machine
+    kernel = os.uname().sysname.lower()
     for system, arch in SYSTEMS.items():
-        if arch == machine:
+        if arch == machine and system.endswith("-" + kernel):
             return system
-    die(f"this machine ({machine}) is not one of the systems a lock covers: {', '.join(SYSTEMS)}")
+    die(f"this machine ({os.uname().sysname} {machine}) is not one of the systems a lock covers: {', '.join(SYSTEMS)}")
 
 
 # VCS checkouts.
@@ -651,7 +672,7 @@ def native_lock(ns):
     ).stdout.strip()
     pip_version = subprocess.run(PIP + ["--version"], capture_output=True, text=True, check=True).stdout.split()[1]
     here = current_system()
-    systems = ns.system or list(SYSTEMS)
+    systems = list(dict.fromkeys([*(ns.system or DEFAULT_SYSTEMS), here]))
     index, extra, links = upstream_indexes(project)
 
     with tempfile.TemporaryDirectory() as tmp, Proxy() as proxy:
@@ -733,7 +754,8 @@ def native_lock(ns):
             sdist = next(n for n in names if not n.endswith(".whl"))
             name, version = dist_name_version(wheel)
             wheels = {}
-            for system, arch in SYSTEMS.items():
+            for system in dict.fromkeys([*DEFAULT_SYSTEMS, *systems, here]):
+                arch = SYSTEMS[system]
                 tags = wheel_tags(wheel)
                 platforms = [re.sub(r"(x86_64|aarch64)$", arch, p) for p in tags[2]]
                 wheels[system] = "-".join(wheel[:-4].split("-")[:-1] + [".".join(platforms)]) + ".whl"
@@ -1054,13 +1076,14 @@ def main():
 
     lockfile_help = "the lockfile to write or read (default: pip-purifier.lock.json in the current directory)"
     tool_lockfile_help = "a pylock.toml kept outside the project, read in place of pylock.toml in the project (default: PIP_PURIFIER_TOOL_LOCKFILE)"
+    system_help = f"a Nix system to lock for (default: {', '.join(DEFAULT_SYSTEMS)} and the system of this machine)"
 
     p = commands.add_parser("lock", help="write pip-purifier.lock.json")
     p.add_argument("--lockfile", help=lockfile_help)
     p.add_argument("--tool-lockfile", help=tool_lockfile_help)
     p.add_argument("--input", action="append", help="a Nix producer exposing projections.python")
     p.add_argument("--python", help="the Python interpreter pip installs for (default: the Python of this package set)")
-    p.add_argument("--system", action="append", choices=list(SYSTEMS), help="a Nix system to lock for (default: all)")
+    p.add_argument("--system", action="append", choices=list(SYSTEMS), help=system_help)
     p.add_argument("pip_args", nargs="*", metavar="-- PIP-ARG", help="the arguments of `pip install` (default: -r pylock.toml, -r requirements.txt, or .)")
     p.set_defaults(run=lock, update=None)
 
@@ -1072,7 +1095,7 @@ def main():
     p.add_argument("--tool-lockfile", help=tool_lockfile_help)
     p.add_argument("--input", action="append", help="a Nix producer exposing projections.python")
     p.add_argument("--python", help="the Python interpreter pip installs for (default: the Python of this package set)")
-    p.add_argument("--system", action="append", choices=list(SYSTEMS), help="a Nix system to lock for (default: all)")
+    p.add_argument("--system", action="append", choices=list(SYSTEMS), help=system_help)
     p.add_argument("update", nargs="*", metavar="PACKAGE", help="a package to update (default: every package)")
     p.set_defaults(run=update)
 

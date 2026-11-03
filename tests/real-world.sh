@@ -64,7 +64,8 @@ cat > flake.nix <<EOF
 }
 EOF
 system=$(nix eval --impure --raw --expr builtins.currentSystem)
-sed -i "s/builtins.currentSystem or \"x86_64-linux\"/\"$system\"/" flake.nix
+sed -i.orig "s/builtins.currentSystem or \"x86_64-linux\"/\"$system\"/" flake.nix
+rm flake.nix.orig
 nix build --no-link -L "path:.#checks.$system.tests"
 nix build --no-link "path:.#packages.$system.default"
 
