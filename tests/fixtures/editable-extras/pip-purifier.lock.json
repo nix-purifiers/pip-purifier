@@ -4,7 +4,7 @@
     "requirements.txt"
   ],
   "artifacts": [],
-  "hash": "sha256-Uae6baOZIj3b4qq2w2ghBipjpMSgCQ//9RC69Pd3huA=",
+  "hash": "sha256-uEjcTFcfosPOCv2325+jAlLmeb/5rBkO45kBMJQd6hw=",
   "inputs": {
     "pyproject.toml": "b42f681f095f0bce4b7ec7ea01615e4ced6151c2f25391e646de3e8013237e49",
     "requirements.txt": "3b075981df3ad7b31aab1f66b189174b0b8e1a0f91e238a3a02c3386ccdbf2e0"
@@ -26,6 +26,7 @@
   },
   "pins": {
     "aarch64-darwin": [],
+    "aarch64-linux": [],
     "x86_64-linux": []
   },
   "pip": "26.1.2",
