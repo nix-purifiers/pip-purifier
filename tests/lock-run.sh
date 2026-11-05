@@ -27,6 +27,7 @@ check() {
 }
 
 check project
+check editable-extras
 check sources
 check pylock
 check hashed

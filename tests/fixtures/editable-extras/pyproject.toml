@@ -1,0 +1,11 @@
+[build-system]
+requires = []
+build-backend = "backend"
+backend-path = ["."]
+
+[project]
+name = "editable-extras"
+version = "1.0.0"
+
+[project.optional-dependencies]
+demo = []

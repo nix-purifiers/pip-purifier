@@ -1,0 +1,2 @@
+--no-index
+-e .[demo]

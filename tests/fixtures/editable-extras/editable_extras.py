@@ -1,0 +1,1 @@
+VALUE = "owned-local-extra"
