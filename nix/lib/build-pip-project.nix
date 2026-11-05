@@ -83,6 +83,8 @@
   # a C library.
   nativeBuildInputs ? [ ],
   buildInputs ? [ ],
+  # Native commands required only by the project's tests.
+  nativeCheckInputs ? [ ],
   # A command that tests the project, run in a copy of the source with the
   # environment's programs on PATH.
   checkPhase ? null,
@@ -451,7 +453,7 @@ let
   tests = stdenv.mkDerivation {
     name = "${name}-tests";
     dontUnpack = true;
-    nativeBuildInputs = [ environment ];
+    nativeBuildInputs = [ environment ] ++ nativeCheckInputs;
     buildPhase = ''
       ${unpack}
       export PATH=${environment}/bin:$PATH

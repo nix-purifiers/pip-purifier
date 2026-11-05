@@ -26,6 +26,15 @@ let
   # package ownership and track the local project's manifest.
   editableExtras = build { src = ./fixtures/editable-extras; };
 
+  nativeTestTool = pkgs.writeShellScriptBin "purifier-native-test-tool" ''
+    python -I -c 'import attrs; assert attrs.__version__ == "25.3.0"'
+  '';
+  withNativeTestTool = build {
+    src = ./fixtures/project;
+    nativeCheckInputs = [ nativeTestTool ];
+    checkPhase = "purifier-native-test-tool";
+  };
+
   # A git requirement whose version comes from git (attrs, with hatch-vcs),
   # a URL archive (six), a local directory and a nested requirements file.
   # The local directory depends on a git repository (iniconfig, also
@@ -208,6 +217,11 @@ let
 in
 {
   composition-producer = project.packages.greet;
+  native-check-inputs =
+    assert withNativeTestTool.environment.drvPath == project.environment.drvPath;
+    assert withNativeTestTool.packages.greet.drvPath == project.packages.greet.drvPath;
+    assert withNativeTestTool.release.drvPath == project.release.drvPath;
+    withNativeTestTool.tests;
   editable-extras =
     runCommand "pip-editable-extras-capture-replay-release" { nativeBuildInputs = [ cli ]; }
       ''
