@@ -216,7 +216,7 @@ in
         chmod -R u+w project
         cd project
         rm pip-purifier.lock.json
-        pip-purifier lock --system aarch64-darwin
+        pip-purifier lock --system x86_64-linux --system aarch64-linux --system aarch64-darwin
         cmp pip-purifier.lock.json ${./fixtures/editable-extras/pip-purifier.lock.json}
         pip-purifier prefetch --inputs ${editableExtras.inputs}
         .venv/bin/python -I -c 'import editable_extras; assert editable_extras.VALUE == "owned-local-extra"'
