@@ -272,8 +272,9 @@ pip-purifier locks what pip installs from:
   `pip lock` writes them;
 - the dependencies of a script ([PEP 723](https://peps.python.org/pep-0723/)),
   with `--requirements-from-script`;
-- local projects, editable or not, inside the project directory or beside
-  it;
+- local projects, editable or not and including extras (`-e .[test]`),
+  inside the project directory or beside it. Native pip's resolved local
+  directories determine owned wheel/sdist outputs and manifest tracking;
 - git, Mercurial, Subversion and Bazaar repositories, and URLs of wheels
   and sdists;
 - a repository or URL that another package names as a source in its own

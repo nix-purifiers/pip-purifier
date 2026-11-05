@@ -725,6 +725,10 @@ def native_lock(ns):
             info = item["download_info"]
             if "dir_info" in info:
                 path = urllib.parse.unquote(urllib.parse.urlsplit(info["url"]).path)
+                # pip resolves local-path syntax (including editable extras)
+                # and transitive local requirements. Use its actual directory
+                # for owned outputs and manifest tracking, not the raw token.
+                rewriter.record_dir(path)
                 versions[os.path.relpath(path, project)] = item["metadata"]["version"]
 
         # The outputs, which Nix names at evaluation time from the lockfile:

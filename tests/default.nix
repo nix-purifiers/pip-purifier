@@ -22,6 +22,10 @@ let
   # setuptools) and a dependency with platform wheels (PyYAML).
   project = build { src = ./fixtures/project; };
 
+  # Native pip understands editable extras; its report must also establish
+  # package ownership and track the local project's manifest.
+  editableExtras = build { src = ./fixtures/editable-extras; };
+
   # A git requirement whose version comes from git (attrs, with hatch-vcs),
   # a URL archive (six), a local directory and a nested requirements file.
   # The local directory depends on a git repository (iniconfig, also
@@ -204,6 +208,30 @@ let
 in
 {
   composition-producer = project.packages.greet;
+  editable-extras =
+    runCommand "pip-editable-extras-capture-replay-release" { nativeBuildInputs = [ cli ]; }
+      ''
+        export HOME=$TMPDIR
+        cp -r ${./fixtures/editable-extras} project
+        chmod -R u+w project
+        cd project
+        rm pip-purifier.lock.json
+        pip-purifier lock --system aarch64-darwin
+        cmp pip-purifier.lock.json ${./fixtures/editable-extras/pip-purifier.lock.json}
+        pip-purifier prefetch --inputs ${editableExtras.inputs}
+        .venv/bin/python -I -c 'import editable_extras; assert editable_extras.VALUE == "owned-local-extra"'
+        ${editableExtras.environment}/bin/python -I -c 'import editable_extras; assert editable_extras.VALUE == "owned-local-extra"'
+        test -f ${editableExtras.release}/editable_extras-1.0.0-py3-none-any.whl
+        test -f ${editableExtras.release}/editable_extras-1.0.0.tar.gz
+        # A local manifest edit must invalidate this lock before replay.
+        echo '# changed after capture' >> pyproject.toml
+        if pip-purifier prefetch >stale.log 2>&1; then
+          echo 'edited local manifest was not rejected' >&2
+          exit 1
+        fi
+        grep -q "does not match the project's requirements" stale.log
+        touch $out
+      '';
   installer-sdk-isolation =
     let
       sdk = pkgs.python3.withPackages (ps: [ ps.pip ]);
