@@ -165,6 +165,10 @@ The lockfile names every output, so Nix knows them at evaluation time.
   of the one in `src`;
 - `python`, whose version has to be the one the lock was made with;
 - `nativeBuildInputs` and `buildInputs`, for native dependencies of sdists;
+- `nativeCheckInputs` (default `[]`), native commands for `tests`, such as
+  `[ pkgs.less pkgs.which ]` when upstream tests invoke them. Python test
+  dependencies still come from the captured pip requirements. These tools
+  do not change the environment, packages, releases or projections;
 - `pathSources`, for local projects outside `src`;
 - `checkPhase`.
 
