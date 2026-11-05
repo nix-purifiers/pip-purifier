@@ -31,3 +31,9 @@
   change to a fixture or to the lock format.
 
 CI runs every job on x86_64-linux and aarch64-linux.
+
+The opt-in [HTTPX Python3.13 diagnostic](../../tests/real-world/httpx-python313/README.md)
+retains a pinned real-project failure and a matched raw-pip baseline. Both
+commands are expected to fail on the same upstream trio warning; the receipt
+records the exact source, SDK, dependency lock, selection and observed counts.
+These failed observations remain separate from the passing default checks.

@@ -1,0 +1,62 @@
+{
+  "project": "encode/httpx",
+  "projectRevision": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+  "purifierRevision": "f2c0ed42a92e5d908a67d2d1e408e89ca75b0989",
+  "system": "x86_64-linux",
+  "sdk": {
+    "coreutils": "/nix/store/cb987zkxvsv0490753ilrvn5yk7ylgxi-coreutils-9.12",
+    "nixpkgs": "1c89083e451e891152365b799595cf7790a43325",
+    "pipSdk": "/nix/store/6c9ywd8kdk7s16s2nz9f92wb1c8id446-python3-3.14.8-env",
+    "python313": "/nix/store/4168xqs4l5jbfc7xyi9zrhdhszx0pnlb-python3-3.13.16",
+    "pythonVersion": "3.13.16"
+  },
+  "pip": "26.1.2",
+  "uvicorn": "0.35.0",
+  "pytest": "8.4.1",
+  "trio": "0.31.0",
+  "hashes": {
+    "pyproject.toml": "f20daa9f2eb1f4cfdbb0c5e74fa3bfe99ea260b8bbf5df6ada3f7f25fd7956ec",
+    "requirements.txt": "43d93f514608a51aa7841ba327567a804efe5ddb2435d44f57bcb3532b48ad63",
+    "pip-purifier.lock.json": "1bf5ddbfdea03432728e219a662b723701a56dfc0d920c46aa0bdd29478742a9"
+  },
+  "selection": "pytest -q -m 'not network'",
+  "timeoutSeconds": 180,
+  "network": "Both matched test runs in network-disabled Nix sandboxes; localhost server allowed.",
+  "nativeInstall": "Raw pip --python .venv install -r requirements.txt; no purifier installer invoked.",
+  "dependencies": "Exact normalized installed distribution names and versions compared equal before tests.",
+  "purified": {
+    "status": "failed",
+    "passed": 1411,
+    "failed": 1,
+    "skipped": 1,
+    "deselected": 5,
+    "derivation": "/nix/store/6zfd6nrz6v1j31qfnhx48l42nvp6fqcx-httpx-tests.drv"
+  },
+  "rawPip": {
+    "status": "failed",
+    "passed": 1411,
+    "failed": 1,
+    "skipped": 1,
+    "deselected": 5,
+    "derivation": "/nix/store/7ckn8105dgdw6g0jn8a3k6xwvyxd7810-httpx-python313-raw-pip-baseline.drv"
+  },
+  "sharedFailure": "test_write_timeout[trio]: PytestUnraisableExceptionWarning from ByteStream.__aiter__",
+  "interpretation": "Failure reproduced by raw pip at the same source/runtime/dependency tuple; no purifier-specific attribution or passing-suite claim.",
+  "retainedControls": [
+    "Native host test blocked by www.example.com execution-layer allowlist; not a product failure.",
+    "Escalated host retry produced no output and was canceled; no result credited.",
+    "Earlier raw-pip Python -I invocation added SSLKEYLOGFILE failure; retained as mismatched control.",
+    "Python3.14 pinned-Uvicorn startup hang remains a distinct failed context."
+  ],
+  "mergedPurifierRevision": "77c5742ae034a12d2a45b4212290be862e0fa772",
+  "sourceTreeComparison": "Original tested topic and merged purifier trees are identical.",
+  "packagedReproduction": {
+    "purifiedDerivation": "/nix/store/77pgvggm8waf001a9bgc3r4pq24pjbdy-httpx-tests.drv",
+    "rawPipDerivation": "/nix/store/1rrbz0qb7ardchz2fr7jij8a6vj5js13-httpx-python313-raw-pip-baseline.drv",
+    "bothResults": "1 failed, 1411 passed, 1 skipped, 5 deselected",
+    "bothCommandsReturnNonzero": true,
+    "installedDistributionComparison": "equal"
+  },
+  "sourceEdits": false,
+  "warningSuppression": false
+}
