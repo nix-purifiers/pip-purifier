@@ -3,7 +3,8 @@
 # Exact target CPython points, independently selected from the installer SDK.
 set -euo pipefail
 source "$(dirname "$0")/network.sh"
-repo=$(pwd)
+source "$(dirname "$0")/source.sh"
+repo=$(source_snapshot)
 attribute=${1:?give a pinned nixpkgs Python attribute}
 case "$attribute" in
   python311|python312|python313|python314|python315) ;;
@@ -15,17 +16,17 @@ if [ "$(uname -s)" = Darwin ]; then
   test "$system" = aarch64-darwin
 fi
 case "$installer" in
-  default) cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier ;;
+  default) cli=$(nix build --no-link --print-out-paths "$repo#cli")/bin/pip-purifier ;;
   current) cli=$(nix build --no-link --print-out-paths --impure --expr \
-    "import ./tests/sdk.nix { repo = toString ./.; system = \"$system\"; }")/bin/pip-purifier ;;
+    "import $repo/tests/sdk.nix { repo = \"$repo\"; system = \"$system\"; }")/bin/pip-purifier ;;
   *) echo "unknown installer point: $installer" >&2; exit 1 ;;
 esac
 python=$(nix build --no-link --print-out-paths --impure --expr \
-  "let f = builtins.getFlake (toString ./.); pkgs = import f.inputs.nixpkgs { system = \"$system\"; }; in pkgs.$attribute")/bin/python
+  "let f = builtins.getFlake \"$repo\"; pkgs = import f.inputs.nixpkgs { system = \"$system\"; }; in pkgs.$attribute")/bin/python
 "$python" --version
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-cp -r tests/fixtures/project "$work/project"
+cp -r "$repo/tests/fixtures/project" "$work/project"
 chmod -R u+w "$work/project"
 cd "$work/project"
 rm pip-purifier.lock.json
