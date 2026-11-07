@@ -75,7 +75,7 @@ EOF
 system=$(nix eval --impure --raw --expr builtins.currentSystem)
 sed -i.orig "s/builtins.currentSystem or \"x86_64-linux\"/\"$system\"/" flake.nix
 rm flake.nix.orig
-nix build --no-link --json -L "path:.#checks.$system.tests" "path:.#checks.$system.development" "path:.#packages.$system.default" > "$work/builds.json"
+nix build --option sandbox true --no-link --json -L "path:.#checks.$system.tests" "path:.#checks.$system.development" "path:.#packages.$system.default" > "$work/builds.json"
 
 if [ -n "${PIP_PURIFIER_EVIDENCE_DIR:-}" ]; then
   cp "$work/builds.json" pip-purifier.lock.json flake.nix flake.lock "$PIP_PURIFIER_EVIDENCE_DIR/"

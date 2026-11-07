@@ -29,6 +29,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - name: Flake checks
         run: nix flake check -L
       - name: Evaluation for every system
@@ -48,6 +49,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - run: tests/lock-run.sh
 
   # `nix build --rebuild` of the fixture sdist and wheel gives the same
@@ -65,6 +67,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - run: |
           system=$(nix eval --impure --raw --expr builtins.currentSystem)
           nix build -L ".#checks.$system.conformance-rebuild"
@@ -85,6 +88,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - run: tests/offline.sh
         env:
           PIP_PURIFIER_TEST_GC: "1"
@@ -104,6 +108,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - run: tests/update.sh
 
   # pallets/click 8.1.8, pinned to a commit.
@@ -120,6 +125,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - run: tests/record.sh tests/real-world.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -141,6 +147,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - run: python3 tests/composition-native.py
       - name: Compiled input for the project Python
         run: |
@@ -165,6 +172,7 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
+      - run: python3 tests/sandbox.py
       - run: tests/record.sh tests/python-compatibility.sh "${{ matrix.point.python }}" "${{ matrix.point.installer }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Retain exact-source identity, command, exit status, and complete runtime output.
 set -euo pipefail
+export NIX_CONFIG="${NIX_CONFIG:-}"$'\nsandbox = true'
 mkdir -p evidence
 export PIP_PURIFIER_EVIDENCE_DIR="$PWD/evidence"
 python3 - "$@" <<'PYTHON'
@@ -15,6 +16,7 @@ receipt = {
     'flakeLockSha256': hashlib.sha256(Path('flake.lock').read_bytes()).hexdigest(),
     'system': run('nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem'),
     'host': platform.platform(), 'nix': run('nix', '--version'),
+    'nixSettings': json.loads(run('python3', 'tests/sandbox.py')),
     'command': sys.argv[1:], 'githubRunId': os.getenv('GITHUB_RUN_ID'),
     'githubRunAttempt': os.getenv('GITHUB_RUN_ATTEMPT'),
 }
