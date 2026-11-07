@@ -10,12 +10,13 @@ import time
 
 root = Path(__file__).resolve().parent.parent
 system = subprocess.check_output(['nix', 'eval', '--impure', '--raw', '--expr', 'builtins.currentSystem'], text=True).strip()
-snapshot = json.loads(subprocess.check_output(['nix', 'flake', 'metadata', '--json',
-    '--no-write-lock-file', 'path:' + str(root)], text=True))['path']
+snapshot = subprocess.check_output(
+    ['bash', '-c', 'set -euo pipefail; source tests/source.sh; source_snapshot'],
+    cwd=root, text=True).strip()
 with tempfile.TemporaryDirectory(prefix='pip-native-composition-') as temporary:
     temporary = Path(temporary)
     subprocess.run(['nix-store', '--add-root', str(temporary / 'source'), '--realise', snapshot], check=True)
-    cli = Path(subprocess.check_output(['nix', 'build', str(root) + '#cli', '--print-out-paths',
+    cli = Path(subprocess.check_output(['nix', 'build', snapshot + '#cli', '--print-out-paths',
         '--out-link', str(temporary / 'cli')], text=True).strip()) / 'bin/pip-purifier'
     expression = '''let
       f = builtins.getFlake ("path:" + builtins.getEnv "PIP_COMPOSITION_FLAKE");
