@@ -78,7 +78,7 @@ cat > flake.nix <<NIX
     };
 }
 NIX
-nix build --no-link --json -L "path:.#packages.$system.default" "path:.#checks.$system.tests" "path:.#checks.$system.development" > "$work/builds.json"
+nix build --option sandbox true --no-link --json -L "path:.#packages.$system.default" "path:.#checks.$system.tests" "path:.#checks.$system.development" > "$work/builds.json"
 if [ -n "${PIP_PURIFIER_EVIDENCE_DIR:-}" ]; then
   cp "$work/builds.json" flake.nix flake.lock "$PIP_PURIFIER_EVIDENCE_DIR/"
 fi
