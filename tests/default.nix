@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 #
-# The flake's checks. Every one builds in the sandbox; the only network
-# access is the fixed-output fetches of locked downloads.
+# The flake's checks build in the sandbox. Locked downloads use fixed-output
+# fetches; the two loopback checks run their own local test servers.
 {
   pkgs,
   # The default package overlay of the flake, which adds the scope
@@ -11,6 +11,11 @@
 }:
 let
   inherit (pkgs) lib runCommand;
+  # These two checks run their own loopback servers. Keep all other
+  # derivations unchanged and retain the external-network denial control.
+  loopback = lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+    __darwinAllowLocalNetworking = true;
+  };
 
   # Every fixture builds the way a consumer's package does: through
   # pip-purifier.buildPipProject of a package set that the overlay applies
@@ -223,9 +228,11 @@ in
     assert withNativeTestTool.release.drvPath == project.release.drvPath;
     withNativeTestTool.tests;
   editable-extras =
-    runCommand "pip-editable-extras-capture-replay-release" { nativeBuildInputs = [ cli ]; }
+    runCommand "pip-editable-extras-capture-replay-release"
+      ({ nativeBuildInputs = [ cli ]; } // loopback)
       ''
         export HOME=$TMPDIR
+        ${pkgs.python3.interpreter} ${./network_check.py} > network.json
         cp -r ${./fixtures/editable-extras} project
         chmod -R u+w project
         cd project
@@ -244,7 +251,8 @@ in
           exit 1
         fi
         grep -q "does not match the project's requirements" stale.log
-        touch $out
+        mkdir -p $out
+        cp ../network.json $out/network.json
       '';
   installer-sdk-isolation = import ./installer-sdk.nix { inherit pkgs; };
 
@@ -367,20 +375,25 @@ in
   # the VCS shims (tests/unit).
   unit =
     runCommand "pip-purifier-test-unit"
-      {
-        nativeBuildInputs = [
-          pkgs.python3
-          pkgs.git
-        ];
-      }
+      (
+        {
+          nativeBuildInputs = [
+            pkgs.python3
+            pkgs.git
+          ];
+        }
+        // loopback
+      )
       ''
         export HOME=$TMPDIR
+        ${pkgs.python3.interpreter} ${./network_check.py} > network.json
         export PIP_PURIFIER_NIX_LIB=${../nix/lib}
         export PIP_PURIFIER_PYTHON=${pkgs.python3.interpreter}
         export PIP_PURIFIER_NIXPKGS=${pkgs.path}
         export PYTHONPATH=${../nix/lib}:${../src}
         python -m unittest discover -s ${./unit} -v
-        touch $out
+        mkdir -p $out
+        cp network.json $out/network.json
       '';
 
   hashed = imports "hashed" hashed.environment "import idna; print(idna.__version__)" "3.10";
