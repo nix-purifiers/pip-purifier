@@ -252,6 +252,7 @@ let
 
   inputs = runCommand "pip-purifier-inputs" { } ''
     mkdir -p $out
+    ln -s ${python} $out/python
     ${lib.optionalString (supplied != [ ]) "ln -s ${inputBindings}/inputs.json $out/python-inputs.json"}
     ln -s ${wheelhouse} $out/wheelhouse
     mkdir -p $out/replay
