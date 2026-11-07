@@ -53,6 +53,11 @@ cat > flake.nix <<NIX
   outputs = { nixpkgs, pip-purifier, ... }:
     let
       pkgs = import nixpkgs { system = "$system"; overlays = [ pip-purifier.overlays.default ]; };
+      installerPython = if "$installer" == "current" then
+        import "\${pip-purifier}/tests/sdk.nix" {
+          flake = pip-purifier; system = "$system"; output = "python";
+        }
+      else pkgs.python3;
       source = builtins.path { path = ./.; name = "project-source"; filter = p: t: !(builtins.elem (baseNameOf p) [ ".venv" ".pip-purifier" ]); };
       project = pkgs.pip-purifier.buildPipProject {
         src = source;
@@ -67,6 +72,10 @@ cat > flake.nix <<NIX
     in {
       packages.$system.default = project.packages.greet;
       checks.$system.tests = project.tests;
+      checks.$system.installer = import "\${pip-purifier}/tests/installer-sdk.nix" {
+        inherit pkgs;
+        sdk = installerPython.withPackages (ps: [ ps.pip ]);
+      };
       checks.$system.development = import "\${pip-purifier}/tests/development.nix" {
         inherit pkgs project;
         cli = if "$installer" == "default" then pkgs.pip-purifier.cli else
@@ -78,7 +87,7 @@ cat > flake.nix <<NIX
     };
 }
 NIX
-nix build --option sandbox true --no-link --json -L "path:.#packages.$system.default" "path:.#checks.$system.tests" "path:.#checks.$system.development" > "$work/builds.json"
+nix build --option sandbox true --no-link --json -L "path:.#packages.$system.default" "path:.#checks.$system.tests" "path:.#checks.$system.development" "path:.#checks.$system.installer" > "$work/builds.json"
 if [ -n "${PIP_PURIFIER_EVIDENCE_DIR:-}" ]; then
   cp "$work/builds.json" flake.nix flake.lock "$PIP_PURIFIER_EVIDENCE_DIR/"
 fi
