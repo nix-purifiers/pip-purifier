@@ -39,6 +39,9 @@ for out in outputs:
     runtime = Path(out) / 'runtime.json'
     if runtime.is_file():
         shutil.copy(runtime, 'evidence/development-runtime.json')
+    if (Path(out) / 'sdk.json').is_file():
+        for name in ('sdk.json', 'target.json', 'capture.sha256', 'conflict.log'):
+            shutil.copy(Path(out) / name, Path('evidence') / ('installer-' + name))
 PYTHON
 elif [ "$status" = 0 ]; then
   echo 'successful evidence run produced no derivation receipt' >&2
