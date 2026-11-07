@@ -319,6 +319,10 @@ let
 
   environment = stdenv.mkDerivation (
     offlineEnv
+    # Recorded URL sources use a local replay proxy during installation.
+    // lib.optionalAttrs (stdenv.hostPlatform.isDarwin && (checked.replays or [ ]) != [ ]) {
+      __darwinAllowLocalNetworking = true;
+    }
     // {
       name = "${name}-environment";
       dontUnpack = true;
