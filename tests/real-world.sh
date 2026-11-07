@@ -62,12 +62,14 @@ cat > flake.nix <<EOF
       };
     in {
       packages.\${system}.default = project.packages.click;
-      checks.\${system}.tests = project.tests;
-      checks.\${system}.development = import "\${pip-purifier}/tests/development.nix" {
-        inherit pkgs project;
-        cli = pkgs.pip-purifier.cli;
-        src = ./.;
-        checkPhase = "pytest -q tests";
+      checks.\${system} = {
+        tests = project.tests;
+        development = import "\${pip-purifier}/tests/development.nix" {
+          inherit pkgs project;
+          cli = pkgs.pip-purifier.cli;
+          src = ./.;
+          checkPhase = "pytest -q tests";
+        };
       };
     };
 }
