@@ -246,29 +246,7 @@ in
         grep -q "does not match the project's requirements" stale.log
         touch $out
       '';
-  installer-sdk-isolation =
-    let
-      sdk = pkgs.python3.withPackages (ps: [ ps.pip ]);
-      wheel = pkgs.fetchurl {
-        url = "https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl";
-        sha256 = "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70";
-      };
-    in
-    runCommand "pip-installer-sdk-isolation" { } ''
-      export HOME=$TMPDIR
-      unset PYTHONPATH
-      ${pkgs.python3.interpreter} -m venv target
-      ln -s ${wheel} pip-26.2.2-py3-none-any.whl
-      ${sdk.interpreter} ${../nix/lib/pip_runner.py} --python "$PWD/target" \
-        install --no-index --no-deps "$PWD/pip-26.2.2-py3-none-any.whl"
-      target/bin/python -I - <<'PYTHON'
-      from importlib.metadata import distributions
-      versions = [distribution.version for distribution in distributions()
-                  if distribution.metadata['Name'].lower() == 'pip']
-      assert versions == ['26.2.2'], versions
-      PYTHON
-      touch $out
-    '';
+  installer-sdk-isolation = import ./installer-sdk.nix { inherit pkgs; };
 
   python-projection =
     runCommand "pip-native-projection-downstream"

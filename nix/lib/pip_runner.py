@@ -64,7 +64,13 @@ if bindings:
 capture = os.environ.get('PIP_PURIFIER_EXPORT_WHEELS')
 if capture:
     from pip._internal.req import req_install
-    original_install = req_install.install_wheel
+    try:
+        from pip._internal.operations.install import wheel as wheel_install
+        original_install = wheel_install.install_wheel
+    except (ImportError, AttributeError) as error:
+        raise RuntimeError(
+            f"pip-purifier: pip {pip.__version__} has no supported wheel capture hook; use a tested pip SDK"
+        ) from error
 
     def install(name, wheel_path, *args, **kwargs):
         destination = Path(capture)
@@ -85,7 +91,11 @@ if capture:
             temporary_path.unlink()
         return original_install(name, wheel_path, *args, **kwargs)
 
-    req_install.install_wheel = install
+    # pip 26.3 imports this function lazily at installation time. Older
+    # SDKs keep an eager alias in req_install, which needs the same hook.
+    wheel_install.install_wheel = install
+    if hasattr(req_install, 'install_wheel'):
+        req_install.install_wheel = install
 
 if __name__ == '__main__':
     # Keep SDK imports available through their package paths, while package
