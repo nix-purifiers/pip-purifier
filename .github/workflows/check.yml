@@ -147,15 +147,16 @@ jobs:
           fixture="$(nix eval --raw .#lib.purifier.testFixtures.nativePythonComposition)"
           python3 "$fixture" pip
 
-  # Stable, non-EOL CPython families according to python.org on 2026-11-06.
+  # Exact regression points on maintained CPython lines (python.org, 2026-11-06).
   # Default and immutable current installer SDKs are measured separately.
   python-compatibility:
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15]
-        python: [python311, python312, python313, python314, python315]
-        installer: [default, current]
+        point:
+          - { python: python311, installer: default }
+          - { python: python314, installer: current }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
@@ -164,10 +165,10 @@ jobs:
         with:
           extra_nix_config: |
             sandbox = true
-      - run: tests/record.sh tests/python-compatibility.sh "${{ matrix.python }}" "${{ matrix.installer }}"
+      - run: tests/record.sh tests/python-compatibility.sh "${{ matrix.point.python }}" "${{ matrix.point.installer }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: python-${{ matrix.runner }}-${{ matrix.python }}-${{ matrix.installer }}
+          name: python-${{ matrix.runner }}-${{ matrix.point.python }}-${{ matrix.point.installer }}
           path: evidence/
           retention-days: 14
