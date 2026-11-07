@@ -47,6 +47,21 @@ let
   # metadata.
   sources = build { src = ./fixtures/sources; };
 
+  # Exercise networking in the same derivation that installs recorded URL
+  # sources, then preserve the receipt alongside the installed environment.
+  sourcesReplayEnvironment = sources.environment.overrideAttrs (old: {
+    meta = (old.meta or { }) // {
+      mainProgram = "sources";
+    };
+    preBuild = (old.preBuild or "") + ''
+      ${pkgs.python3.interpreter} ${./network_check.py} > $TMPDIR/replay-network.json
+    '';
+    postBuild = (old.postBuild or "") + ''
+      mkdir -p $out/nix-support
+      cp $TMPDIR/replay-network.json $out/nix-support/replay-network.json
+    '';
+  });
+
   # A pylock.toml that `pip lock` wrote.
   pylock = build { src = ./fixtures/pylock; };
 
@@ -359,7 +374,7 @@ in
   ];
 
   sources =
-    runs "sources" sources.programs.sources
+    runs "sources" sourcesReplayEnvironment
       "attrs=25.3.0 six=1.17.0 idna=3.10 iniconfig=2.1.0 pyparsing=3.2.3 localdir=0.3.0";
 
   pylock =
