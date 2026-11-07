@@ -16,9 +16,10 @@
 set -euo pipefail
 
 source "$(dirname "$0")/network.sh"
+source "$(dirname "$0")/source.sh"
 
-repo=$(pwd)
-cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier
+repo=$(source_snapshot)
+cli=$(nix build --no-link --print-out-paths "$repo#cli")/bin/pip-purifier
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
