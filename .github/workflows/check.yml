@@ -148,7 +148,7 @@ jobs:
           python3 "$fixture" pip
 
   # Stable, non-EOL CPython families according to python.org on 2026-11-06.
-  # These are target-interpreter points with the pinned default pip SDK.
+  # Default and immutable current installer SDKs are measured separately.
   python-compatibility:
     strategy:
       fail-fast: false

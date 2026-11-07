@@ -3,6 +3,8 @@
   repo ? null,
   flake ? builtins.getFlake repo,
   system,
+  pythonAttribute ? "python3",
+  output ? "cli",
 }:
 let
   f = flake;
@@ -10,7 +12,7 @@ let
     inherit system;
     overlays = [ f.overlays.default ];
   };
-  python = pkgs.python3.override {
+  python = pkgs.${pythonAttribute}.override {
     packageOverrides = final: prev: {
       pip = final.buildPythonPackage {
         pname = "pip";
@@ -25,4 +27,8 @@ let
     };
   };
 in
-pkgs.pip-purifier.cli.override { python3 = python; }
+{
+  inherit python;
+  cli = pkgs.pip-purifier.cli.override { python3 = python; };
+}
+.${output}

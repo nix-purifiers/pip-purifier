@@ -55,7 +55,12 @@ cat > flake.nix <<NIX
       source = builtins.path { path = ./.; name = "project-source"; filter = p: t: !(builtins.elem (baseNameOf p) [ ".venv" ".pip-purifier" ]); };
       project = pkgs.pip-purifier.buildPipProject {
         src = source;
-        python = pkgs.$attribute;
+        python = if "$installer" == "current" then
+          import "\${pip-purifier}/tests/sdk.nix" {
+            flake = pip-purifier; system = "$system";
+            pythonAttribute = "$attribute"; output = "python";
+          }
+        else pkgs.$attribute;
         checkPhase = "greet";
       };
     in {
