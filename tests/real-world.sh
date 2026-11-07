@@ -15,6 +15,8 @@
 #      that says to relock, and works after the relock.
 set -euo pipefail
 
+source "$(dirname "$0")/network.sh"
+
 repo=$(pwd)
 cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier
 work=$(mktemp -d)
@@ -60,18 +62,41 @@ cat > flake.nix <<EOF
     in {
       packages.\${system}.default = project.packages.click;
       checks.\${system}.tests = project.tests;
+      checks.\${system}.development = import "\${pip-purifier}/tests/development.nix" {
+        inherit pkgs project;
+        cli = pkgs.pip-purifier.cli;
+        src = ./.;
+        checkPhase = "pytest -q tests";
+      };
     };
 }
 EOF
 system=$(nix eval --impure --raw --expr builtins.currentSystem)
 sed -i.orig "s/builtins.currentSystem or \"x86_64-linux\"/\"$system\"/" flake.nix
 rm flake.nix.orig
-nix build --no-link -L "path:.#checks.$system.tests"
-nix build --no-link "path:.#packages.$system.default"
+nix build --no-link --json -L "path:.#checks.$system.tests" "path:.#checks.$system.development" "path:.#packages.$system.default" > "$work/builds.json"
+
+if [ -n "${PIP_PURIFIER_EVIDENCE_DIR:-}" ]; then
+  cp "$work/builds.json" pip-purifier.lock.json flake.nix flake.lock "$PIP_PURIFIER_EVIDENCE_DIR/"
+  git rev-parse HEAD > "$PIP_PURIFIER_EVIDENCE_DIR/sample-revision"
+  printf '%s\n' "$cli" > "$PIP_PURIFIER_EVIDENCE_DIR/cli-path"
+fi
 
 echo "== the development loop offline" >&2
 "$cli" prefetch
+offline_network bash -s <<'OFFLINE'
+set -euo pipefail
+.venv/bin/python - <<'PYTHON'
+import socket
+try:
+    socket.create_connection(("1.1.1.1", 443), timeout=5)
+except OSError:
+    pass
+else:
+    raise AssertionError("direct external network is reachable")
+PYTHON
 .venv/bin/pytest -q tests
+OFFLINE
 nix run 'nixpkgs#pyright' -- --pythonpath .venv/bin/python --outputjson src/click > "$work/pyright.json" || true
 # reportMissingModuleSource means pyright has stubs but the package is not
 # installed, which is right for click's Windows-only colorama and its

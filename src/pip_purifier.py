@@ -1030,18 +1030,27 @@ def prefetch_command(ns):
         inputs = ns.inputs
     else:
         inputs = inputs_of(project, lockfile, pylock)
-        # This command's package holds the Python of the virtual
-        # environment, the pip that installs offline, and the nixpkgs and
-        # purifier library that `pip` builds the inputs with.
+        # The command package holds the installer SDK, nixpkgs and purifier
+        # library. The rooted inputs hold the selected target interpreter.
         package = os.path.dirname(os.path.dirname(os.path.dirname(NIX_LIB)))
         subprocess.run(
             ["nix-store", "--add-root", os.path.join(roots(lockfile), "pip-purifier"), "--realise", package],
             stdout=subprocess.DEVNULL,
             check=True,
         )
+    target_python = os.path.join(inputs, "python", "bin", "python")
+    if not os.path.exists(target_python):
+        die("the offline inputs have no target Python. Rebuild them with this pip-purifier before using --inputs.")
     venv = os.path.abspath(ns.venv)
-    if not os.path.exists(os.path.join(venv, "bin", "python")):
-        subprocess.run([PYTHON, "-m", "venv", "--without-pip", venv], check=True)
+    venv_python = os.path.join(venv, "bin", "python")
+    if not os.path.exists(venv_python):
+        subprocess.run([target_python, "-m", "venv", "--without-pip", venv], check=True)
+    else:
+        identity = "import json, sys, sysconfig; print(json.dumps([list(sys.version_info[:2]), sysconfig.get_config_var('SOABI')]))"
+        target = subprocess.check_output([target_python, "-c", identity], text=True).strip()
+        existing = subprocess.check_output([venv_python, "-c", identity], text=True).strip()
+        if existing != target:
+            die(f"{venv} uses a different Python version or ABI than the lock. Recreate the virtual environment, or choose a new --venv path.")
     offline.install(PIP, project, inputs, venv, editable=True, extra=ns.pip_args, pylock=pylock)
 
 

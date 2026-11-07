@@ -10,12 +10,10 @@
 # and after an edit, `pip-purifier pip list`, and `pip-purifier pip install`
 # of a package the lockfile lacks, which has to name `pip-purifier lock`.
 #
-# The network is cut with `unshare -rn`, or `sudo unshare -n` where user
-# namespaces need root. macOS has no network namespaces, so there every
-# proxy points at a closed port. Where nothing works, such as in a sandbox
-# whose proxy refuses every host, the commands run as they are. In every
-# case the loop first checks that pypi.org cannot be reached.
+# Network isolation is enforced by tests/network.sh; absence is a failure.
 set -euo pipefail
+
+source "$(dirname "$0")/network.sh"
 
 cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier
 work=$(mktemp -d)
@@ -42,21 +40,9 @@ if [ "${PIP_PURIFIER_TEST_GC:-}" = 1 ]; then
   nix-store --gc > /dev/null
 fi
 
-cut() {
-  if unshare -rn true 2> /dev/null; then
-    unshare -rn env NIX_REMOTE=daemon "$@"
-  elif sudo -n unshare -n true 2> /dev/null; then
-    sudo -n unshare -n sudo -n -u "$(id -un)" env "PATH=$PATH" "HOME=$HOME" NIX_REMOTE=daemon "$@"
-  elif [ "$(uname -s)" = Darwin ]; then
-    env HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 \
-      http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 all_proxy=http://127.0.0.1:9 "$@"
-  else
-    "$@"
-  fi
-}
 
 echo "== the development loop with no network" >&2
-cut bash -s "$cli" <<'EOF'
+offline_network bash -s "$cli" <<'EOF'
 set -euo pipefail
 cli=$1
 if .venv/bin/python -c 'import urllib.request; urllib.request.urlopen("https://pypi.org/simple/", timeout=10)' 2> /dev/null; then
