@@ -6,7 +6,7 @@ source_snapshot() {
     return 1
   fi
   local metadata
-  metadata=$(nix flake metadata --json "$PWD") || return
+  metadata=$(nix flake metadata --no-write-lock-file --json "$PWD") || return
   if [ -n "${PIP_PURIFIER_EVIDENCE_DIR:-}" ]; then
     printf '%s\n' "$metadata" > "$PIP_PURIFIER_EVIDENCE_DIR/source.json"
   fi
