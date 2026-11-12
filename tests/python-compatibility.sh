@@ -105,7 +105,7 @@ if "$cli" prefetch > "$work/wrong-venv.log" 2>&1; then
   echo 'prefetch accepted an environment from another Python' >&2
   exit 1
 fi
-grep -q 'Recreate the virtual environment' "$work/wrong-venv.log"
+grep -q 'target Python version/ABI' "$work/wrong-venv.log" || { cat "$work/wrong-venv.log" >&2; exit 1; }
 # No automatic deletion of the user's environment.
 test -x .venv/bin/python
 rm -rf .venv
