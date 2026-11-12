@@ -32,6 +32,12 @@
 
 CI runs every job on x86_64-linux and aarch64-linux.
 
+Dependency-group rewriter tests cover group-only source tracking, included and
+normalized names, nested pyprojects, URL rewriting without fetching unused
+groups, invalid dependency options, cycles, and native pylock group/extra
+selection. A changed group manifest must invalidate prefetch even when the
+project itself is not installed.
+
 The Linux `native-runtime` check compiles a C++/zlib shared library without Nix
 runtime paths and proves that loading fails before repair and succeeds after
 repair with `LD_LIBRARY_PATH` unset. It also checks preservation of vendor

@@ -38,6 +38,16 @@ Sandboxed builds of the whole project are an optional
 For persistent use, add these packages through your usual Nix configuration.
 
 
+Dependency groups can be locked without installing the project itself:
+
+```zsh
+pip-purifier lock -- --group test
+pip-purifier lock -- --group packages/core/pyproject.toml:test
+```
+
+The lock tracks each selected group's source file, including included groups.
+Named `pylock.toml` groups and extras keep pip's native selection behavior.
+
 ## Development loop
 
 pip has no plugin mechanism, so `pip-purifier` is a command of its own

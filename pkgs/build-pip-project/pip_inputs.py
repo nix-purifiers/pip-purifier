@@ -63,6 +63,7 @@ ARG_OPTIONS_WITH_VALUE = dict(
         "--abi": "keep",
         "--implementation": "keep",
         "--extra": "keep",
+        "--group": "group",
     },
 )
 
@@ -221,6 +222,7 @@ class Rewriter:
         self.specs = []
         self.dirs = []
         self.written = {}
+        self.group_files = 0
         # The versions that a hashed requirement or a pylock.toml pins, by
         # normalized name, which constrain the build environments too.
         self.pinned = {}
@@ -482,6 +484,61 @@ class Rewriter:
 
     # The command line.
 
+    def dependency_group(self, value):
+        """Materialize a PEP 735 group as requirements, tracking its source.
+
+        pip resolves includes relative to the selected pyproject, and a group
+        does not install that project. Validate requirement strings before
+        writing them so requirement-file options cannot acquire new semantics.
+        """
+        from packaging.requirements import Requirement
+
+        filename, separator, group = value.rpartition(":")
+        if not separator:
+            filename, group = "pyproject.toml", value
+        lock_filename, _, extras = filename.partition("[")
+        if re.fullmatch(r"pylock(?:\.[^.]+)?\.toml", os.path.basename(lock_filename)):
+            target = self.pylock(self.local_path(lock_filename))
+            suffix = "[" + extras if extras else ""
+            return ["--group", f"{target}{suffix}:{group}"]
+        path = self.local_path(filename)
+        self.record_input(path)
+        with open(path, "rb") as source:
+            data = tomllib.load(source).get("dependency-groups", {})
+        normalize = lambda name: re.sub(r"[-_.]+", "-", name).lower()
+        groups = {}
+        for name, dependencies in data.items():
+            normalized = normalize(name)
+            if normalized in groups:
+                raise ValueError(f"duplicate dependency group {name!r} in {path}")
+            groups[normalized] = dependencies
+
+        def resolve(name, stack=()):
+            key = normalize(name)
+            if key in stack:
+                raise ValueError(f"cyclic dependency group {name!r} in {path}")
+            if key not in groups or not isinstance(groups[key], list):
+                raise ValueError(f"missing or malformed dependency group {name!r} in {path}")
+            requirements = []
+            for dependency in groups[key]:
+                if isinstance(dependency, str):
+                    Requirement(dependency)
+                    requirements.append(self.spec(dependency)[0])
+                elif (isinstance(dependency, dict) and set(dependency) == {"include-group"}
+                      and isinstance(dependency["include-group"], str)):
+                    requirements.extend(resolve(dependency["include-group"], (*stack, key)))
+                else:
+                    raise ValueError(f"invalid dependency in group {name!r} in {path}")
+            return requirements
+
+        requirements = resolve(group)
+        target = os.path.join(self.out, "_groups", f"{self.group_files}.txt")
+        self.group_files += 1
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as destination:
+            destination.write("".join(requirement + "\n" for requirement in requirements))
+        return ["-r", target]
+
     def args(self, args):
         """Rewrites the arguments of `pip install`."""
         out = []
@@ -503,6 +560,8 @@ class Rewriter:
                     out += [option, self.requirements_file(os.path.join(self.project, value))]
                 elif kind == "script":
                     out += [option, self.script(os.path.join(self.project, value))]
+                elif kind == "group":
+                    out += self.dependency_group(value)
                 elif kind == "editable":
                     spec, editable = self.spec(value, editable=True)
                     out += (["-e"] if editable else []) + [spec]

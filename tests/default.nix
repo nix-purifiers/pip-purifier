@@ -393,7 +393,7 @@ in
       (
         {
           nativeBuildInputs = [
-            pkgs.python3
+            (pkgs.python3.withPackages (ps: [ ps.packaging ]))
             pkgs.git
           ];
         }
