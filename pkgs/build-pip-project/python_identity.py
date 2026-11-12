@@ -30,3 +30,8 @@ def validate_inputs(inputs, python):
     if path.exists():
         expected = json.loads(path.read_text())
         validate(python, expected["python"], expected.get("pythonAbi"))
+
+
+if __name__ == "__main__":
+    import sys
+    validate(*sys.argv[1:])

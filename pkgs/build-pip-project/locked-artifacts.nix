@@ -152,6 +152,14 @@ let
   shims = map (shim: shim // { path = "${fetch byPath.${shim.path}}"; }) (checked.shims or [ ]);
 
   inputs = runCommand "pip-purifier-inputs" { } ''
+    ${lib.optionalString (python != null) ''
+      ${python3.interpreter} -I ${./python_identity.py} \
+        ${lib.escapeShellArg python.interpreter} \
+        ${lib.escapeShellArg checked.python} \
+        ${lib.escapeShellArg (
+          checked.pythonAbi or ("cp" + builtins.replaceStrings [ "." ] [ "" ] checked.python)
+        )}
+    ''}
     mkdir -p $out
     ${lib.optionalString (python != null) "ln -s ${python} $out/python"}
     cp ${

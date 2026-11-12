@@ -148,3 +148,11 @@ The probe and the execution path share that check. Unknown or unvalidated
 backends are refused before a local target venv is created/reused, including
 when an explicit offline input view supplies the bindings. Older-runtime
 producer binding support is not inferred from unbound packaging replay.
+
+SDK metadata and actual identity are distinct gates. An advertised primary ABI
+must match the lock; an older SDK without that metadata remains unknown at
+evaluation. Before publishing a supplied-SDK input view, its actual interpreter
+is probed for CPython version and ABI. A mismatch fails before the output or
+SDK link is created. Local SDK-free artifact views do not acquire or execute a
+project SDK. This identity gate does not establish the historical SDK's installer
+or source-build protocol support.

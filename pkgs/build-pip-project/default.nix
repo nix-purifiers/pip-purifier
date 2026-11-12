@@ -135,7 +135,8 @@ let
     else if python.pythonVersion != read.lockfile.python then
       throw "pip-purifier: ${file} was made for Python ${read.lockfile.python}, and this build uses Python ${python.pythonVersion}. Pass a `python` of version ${read.lockfile.python}, or run `pip-purifier lock --python` with this one."
     else if
-      !(lib.elem (read.lockfile.pythonAbi
+      python ? pythonABITags
+      && !(lib.elem (read.lockfile.pythonAbi
         or ("cp" + builtins.replaceStrings [ "." ] [ "" ] read.lockfile.python)
       ) (python.pythonABITags or [ ]))
     then
