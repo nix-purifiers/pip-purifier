@@ -8,6 +8,7 @@ import http.server
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import threading
@@ -16,6 +17,36 @@ import unittest.mock
 import urllib.request
 
 import pip_purifier as pp
+
+
+class EditableVcsReports(unittest.TestCase):
+    def test_editable_git_report_uses_verified_checkout_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repo), *args], stderr=subprocess.DEVNULL, text=True).strip()
+            git("init", "-q")
+            git("-c", "user.name=Probe", "-c", "user.email=probe@example.invalid", "commit", "--allow-empty", "-qm", "fixture")
+            origin = "https://example.invalid/owned.git"
+            git("remote", "add", "origin", origin)
+            item = {"metadata": {"name": "probe"}, "download_info": {
+                "url": repo.as_uri(), "dir_info": {"editable": True}}}
+            spec = {"kind": "vcs", "name": "probe", "url": "git+" + origin + "@main"}
+            result = pp.vcs_report_items([spec], [item])[0]
+            self.assertEqual(result["download_info"]["url"], origin)
+            self.assertEqual(result["download_info"]["vcs_info"]["commit_id"], git("rev-parse", "HEAD"))
+            self.assertEqual(result["download_info"]["vcs_info"]["requested_revision"], "main")
+            self.assertNotIn("vcs_info", item["download_info"])
+            git("remote", "set-url", "origin", "https://example.invalid/other.git")
+            with self.assertRaises(SystemExit):
+                pp.vcs_report_items([spec], [item])
+
+    def test_reported_vcs_identity_is_preserved(self):
+        item = {"metadata": {"name": "probe"}, "download_info": {
+            "url": "https://example.invalid/owned.git",
+            "vcs_info": {"vcs": "git", "commit_id": "a" * 40}}}
+        spec = {"kind": "vcs", "name": "probe", "url": "git+https://example.invalid/owned.git"}
+        self.assertEqual(pp.vcs_report_items([spec], [item]), [item])
 
 
 class Wheels(unittest.TestCase):

@@ -764,6 +764,46 @@ def source_sdist(directory, destination, python, env, constraints, settings, iso
         return builder.build("sdist", destination, config_settings=settings)
 
 
+def vcs_report_items(specs, items):
+    """Recover editable Git identity from pip's reported local checkout.
+
+    pip reports editable VCS installs as local directories rather than as
+    vcs_info. Verify the checkout's origin before using its actual HEAD;
+    the artifact fetch subsequently pins that commit from the declared URL.
+    """
+    items = list(items)
+    positions = {normalize(item["metadata"]["name"]): i for i, item in enumerate(items)}
+    for spec in specs:
+        if spec["kind"] != "vcs":
+            continue
+        vcs, repo, revision, params = pip_inputs.split_vcs_url(spec["url"])
+        position = positions.get(normalize(spec.get("name") or params.get("egg", "")))
+        if vcs != "git" or position is None:
+            continue
+        item = items[position]
+        info = item["download_info"]
+        if "vcs_info" in info or not info.get("dir_info", {}).get("editable"):
+            continue
+        local = urllib.parse.urlsplit(info["url"])
+        if local.scheme != "file" or local.netloc not in ("", "localhost"):
+            die("pip reported an editable Git install without a local checkout")
+        directory = urllib.parse.unquote(local.path)
+        try:
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args], stderr=subprocess.PIPE, text=True).strip()
+            origin = git("config", "--get", "remote.origin.url")
+            commit = git("rev-parse", "--verify", "HEAD")
+        except (OSError, subprocess.CalledProcessError):
+            die("could not verify pip's editable Git checkout")
+        if strip_credentials(origin).rstrip("/") != strip_credentials(repo).rstrip("/"):
+            die("pip's editable Git checkout origin does not match the declared repository")
+        identity = {"vcs": "git", "commit_id": commit}
+        if revision is not None:
+            identity["requested_revision"] = revision
+        items[position] = {**item, "download_info": {"url": repo, "vcs_info": identity}}
+    return items
+
+
 def report_items(path):
     with open(path) as f:
         return json.load(f).get("install", [])
@@ -859,7 +899,7 @@ def native_lock(ns):
             subprocess.run([python, "-m", "venv", "--without-pip", venv], check=True)
         if not proxy.keep:
             run_pip(install, env, project)
-        items = report_items(report)
+        items = vcs_report_items(rewriter.specs, report_items(report))
         pins = {here: pins_of(items, proxy)}
 
         # The versions of packages built from a local directory, by the

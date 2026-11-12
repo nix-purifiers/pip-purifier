@@ -5,14 +5,68 @@ answers of the hg, svn and bzr shims."""
 
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+import urllib.parse
 
 import offline
 
 SHIM = os.path.join(os.path.dirname(offline.__file__), "vcs_shim.py")
+
+
+class EditableSourceLifetime(unittest.TestCase):
+    def exercise(self, editable):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            (source / "module.py").write_text("original\n")
+            inputs = root / "inputs"
+            inputs.mkdir()
+            url = "git+https://example.invalid/owned.git@main#egg=probe"
+            for name, value in {
+                "sources.json": {url: str(source)}, "versions.json": {},
+                "args.json": ["-e", url], "repositories.json": [],
+            }.items():
+                (inputs / name).write_text(json.dumps(value))
+            destinations = []
+            def consume(command, *_args):
+                target = command[-1].split(" @ ", 1)[-1]
+                path = Path(urllib.parse.unquote(urllib.parse.urlsplit(target).path))
+                self.assertTrue((path / "module.py").exists())
+                destinations.append(path)
+            def install():
+                with patch.object(offline, "run_pip", side_effect=consume):
+                    offline.install(["pip"], str(root), str(inputs), str(root / "venv"), editable, repair_native=False)
+            install()
+            destination = destinations[-1]
+            if editable:
+                self.assertTrue(destination.exists(), "editable source disappeared after pip returned")
+                (destination / "module.py").write_text("local edit\n")
+                install()
+                self.assertEqual(destinations[-1], destination)
+                self.assertEqual((destination / "module.py").read_text(), "local edit\n")
+                self.assertEqual((source / "module.py").read_text(), "original\n")
+                replacement = root / "next-locked-source"
+                replacement.mkdir()
+                (replacement / "module.py").write_text("new locked source\n")
+                (inputs / "sources.json").write_text(json.dumps({url: str(replacement)}))
+                install()
+                self.assertNotEqual(destinations[-1], destination)
+                self.assertEqual((destinations[-1] / "module.py").read_text(), "new locked source\n")
+                self.assertEqual((destination / "module.py").read_text(), "local edit\n")
+            else:
+                self.assertFalse(destination.exists())
+
+    def test_editable_source_survives_and_local_edits_are_preserved(self):
+        self.exercise(True)
+
+    def test_noneditable_build_source_is_temporary(self):
+        self.exercise(False)
 
 
 class Tag(unittest.TestCase):

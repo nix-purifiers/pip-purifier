@@ -34,6 +34,7 @@ version, as they did from the real repository.
 
 import argparse
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -242,11 +243,19 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None, repair_
             path = os.path.join(inputs, sources[url])
             if not os.path.isdir(path):
                 return path
-            copy = os.path.join(copies, str(len(os.listdir(copies)) if os.path.isdir(copies) else 0))
-            shutil.copytree(path, copy, symlinks=True)
-            subprocess.run(["chmod", "-R", "u+w", copy], check=True)
-            if url in versions:
-                tag(copy, versions[url])
+            if editable and kind == "vcs":
+                # Editable installs retain references to their source directory.
+                # Keep pinned copies with the venv, and preserve local edits on
+                # repeated prefetch. A changed locked source gets a new copy.
+                identity = hashlib.sha256((url + "\0" + os.path.realpath(path)).encode()).hexdigest()
+                copy = os.path.join(venv, "src", "pip-purifier", identity)
+            else:
+                copy = os.path.join(copies, str(len(os.listdir(copies)) if os.path.isdir(copies) else 0))
+            if not os.path.exists(copy):
+                shutil.copytree(path, copy, symlinks=True)
+                subprocess.run(["chmod", "-R", "u+w", copy], check=True)
+                if url in versions:
+                    tag(copy, versions[url])
             return copy
 
         configuration = os.path.join(inputs, "python-inputs.json")
