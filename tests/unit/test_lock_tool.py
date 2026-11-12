@@ -8,6 +8,7 @@ import http.server
 import io
 import json
 import os
+from pathlib import Path
 import tempfile
 import threading
 import unittest
@@ -92,6 +93,25 @@ class Wheels(unittest.TestCase):
         self.assertIn("abi3t", args)
         self.assertNotIn("cp315", args)
         self.assertNotIn("abi3", args)
+
+
+class LocalRuntime(unittest.TestCase):
+    def test_project_runtime_and_recorded_runtime_precede_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "existing-python"
+            runtime.write_text("runtime fixture")
+            runtime.chmod(0o755)
+            state = root / ".pip-purifier"
+            state.mkdir()
+            (state / "runtime.json").write_text(json.dumps({"python": str(runtime)}))
+            with unittest.mock.patch.dict(os.environ, {"VIRTUAL_ENV": ""}):
+                self.assertEqual(pp.local_python(directory, str(root / pp.LOCKFILE)), str(runtime))
+                venv = root / ".venv/bin"
+                venv.mkdir(parents=True)
+                (venv / "python").symlink_to(runtime)
+                self.assertEqual(pp.local_python(directory, str(root / pp.LOCKFILE)), str(venv / "python"))
+                self.assertEqual(pp.local_python(directory, str(root / pp.LOCKFILE), str(runtime)), str(runtime))
 
 
 class Urls(unittest.TestCase):

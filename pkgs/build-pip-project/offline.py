@@ -221,7 +221,7 @@ def load(inputs, name):
         return json.load(f)
 
 
-def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
+def install(pip, project, inputs, venv, editable, extra=(), pylock=None, repair_native=True):
     """Installs the project's inputs into the virtual environment `venv`
     with `pip`, a command that runs pip. `editable` keeps editable installs
     editable; the Nix build turns them into plain installs."""
@@ -288,7 +288,8 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
             if replayer:
                 replayer.terminate()
                 replayer.wait()
-        native_runtime.repair(inputs, venv)
+        if repair_native:
+            native_runtime.repair(inputs, venv)
 
 
 def run_pip(command, cwd, env, stdout=False):

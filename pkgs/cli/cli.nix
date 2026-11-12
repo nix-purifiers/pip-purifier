@@ -66,6 +66,19 @@ let
       // lib.optionalAttrs (pylock != "") { pylock = /. + pylock; }
     )
   );
+  localInputs = (pkgs.callPackage ../build-pip-project/locked-artifacts.nix { inherit purifier; }) {
+    checked = lock;
+    read = readLock (
+      {
+        src = source root;
+        lockFile = lockPath;
+        lockData = lock;
+        inherit pathSources;
+      }
+      // lib.optionalAttrs (pylock != "") { pylock = /. + pylock; }
+    );
+    lock = validated;
+  };
   project = builtins.seq validated (
     pkgs.callPackage ../build-pip-project/default.nix { inherit purifier readLock; } (
       {
@@ -87,7 +100,11 @@ let
     )
   );
 in
-if lock.projectInputs or [ ] != [ ] && (attr == "release" || lib.hasPrefix "packages." attr) then
+if attr == "localInputs" then
+  builtins.seq validated localInputs.inputs
+else if
+  lock.projectInputs or [ ] != [ ] && (attr == "release" || lib.hasPrefix "packages." attr)
+then
   (
     if attr == "release" then
       project

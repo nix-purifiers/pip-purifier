@@ -22,7 +22,7 @@ pkgs.runCommand "pip-purifier-native-runtime-node"
       ];
       postBuild = (old.postBuild or "") + ''
         tar -xJf ${archive} --strip-components=2 -C "$out/bin" node-v24.22.1-linux-x64/bin/node
-        export PYTHONPATH=${../nix/lib}
+        export PYTHONPATH=${../pkgs/build-pip-project}
         ${pkgs.python3.interpreter} - <<'PY'
         import os, pathlib
         from native_runtime import repair
@@ -47,7 +47,7 @@ pkgs.runCommand "pip-purifier-native-runtime-node"
     });
   }
   ''
-    export PYTHONPATH=${../nix/lib}
+    export PYTHONPATH=${../pkgs/build-pip-project}
     unset LD_LIBRARY_PATH
     mkdir -p env/lib/python/site-packages/node-24.22.1.dist-info inputs
     tar -xJf ${archive} --strip-components=2 -C env/lib/python/site-packages node-v24.22.1-linux-x64/bin/node

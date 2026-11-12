@@ -75,7 +75,12 @@ cross-system downloads use those tags.
 
 Sandboxed builds check the supplied SDK's primary ABI metadata, then probe the
 actual interpreter before dependency installation. Local wrapper targets are
-also probed before realizing inputs. A matching major/minor version alone does
+also probed before realizing inputs. Local capture/prefetch/wrapper commands
+select an existing runtime; `.pip-purifier/runtime.json` records the capture
+selection outside the portable lock. `locked-artifacts.nix` materializes local
+downloads without a project SDK or Nix runtime repair configuration. Pure builds
+use that same artifact implementation with a caller-supplied immutable SDK and
+explicit native runtime configuration. A matching major/minor version alone does
 not establish ABI compatibility.
 
 ## The Nix library

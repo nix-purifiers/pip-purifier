@@ -70,7 +70,6 @@ stdenvNoCC.mkDerivation {
       } \
       --set PIP_PURIFIER_PROJECT_INPUTS_TOOLS ${purifierSource}/tools \
       --set PIP_PURIFIER_NIX_LIB $out/share/pip-purifier/pkgs/build-pip-project \
-      --set PIP_PURIFIER_PYTHON ${python3.interpreter} \
       --set PIP_PURIFIER_NIXPKGS ${path}
     runHook postInstall
   '';

@@ -30,7 +30,7 @@ let
     )).success;
   wheel =
     abi:
-    import ../nix/lib/wheel-compatible.nix
+    import ../pkgs/build-pip-project/wheel-compatible.nix
       {
         inherit (pkgs) lib;
         # Platform behavior is delegated unchanged; isolate ABI combinations here.

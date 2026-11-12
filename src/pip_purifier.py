@@ -49,7 +49,6 @@ with open(os.path.join(NIX_LIB, "../../lib-overlays/default/lock-abi-version.nix
 
 LOCKFILE = "pip-purifier.lock.json"
 PIP = [sys.executable, "-m", "pip"]
-PYTHON = os.environ["PIP_PURIFIER_PYTHON"]
 NIXPKGS = os.environ["PIP_PURIFIER_NIXPKGS"]
 
 # The Nix systems a lockfile can cover, with the CPU name of their wheel
@@ -388,6 +387,24 @@ def platform_args(arch, python, abis=None):
     return args
 
 
+def local_python(project, lockfile, explicit=None, venv=".venv"):
+    """Select an existing runtime; host paths are local state, never lock data."""
+    if explicit:
+        return os.path.abspath(shutil.which(explicit) or explicit)
+    candidates = []
+    if os.environ.get("VIRTUAL_ENV"):
+        candidates.append(os.path.join(os.environ["VIRTUAL_ENV"], "bin", "python"))
+    candidates.append(os.path.join(project, venv, "bin", "python"))
+    state = Path(lockfile).parent / ".pip-purifier" / "runtime.json"
+    if state.exists():
+        candidates.append(json.loads(state.read_text())["python"])
+    candidates.extend(filter(None, [shutil.which("python3"), shutil.which("python")]))
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return os.path.abspath(candidate)
+    die("no existing project Python found; select one with `pip-purifier lock --python`.")
+
+
 def interpreter_profile(python):
     """Probe only the target's stdlib; generate tags on the selected helper."""
     import python_target
@@ -702,7 +719,7 @@ def native_lock(ns):
         os.makedirs(os.path.dirname(pylock), exist_ok=True)
         shutil.copyfile(tree_copy, pylock)
     args = ns.pip_args or default_args(project, pylock)
-    python = ns.python or PYTHON
+    python = local_python(project, lockfile, ns.python)
     pyver, python_abi, python_abis = interpreter_profile(python)
     pip_version = subprocess.run(PIP + ["--version"], capture_output=True, text=True, check=True).stdout.split()[1]
     here = current_system()
@@ -954,6 +971,7 @@ def native_lock(ns):
     with open(lockfile, "w") as f:
         json.dump(lock, f, indent=2, sort_keys=True)
         f.write("\n")
+    (Path(roots(lockfile)) / "runtime.json").write_text(json.dumps({"python": python}) + "\n")
     log(f"wrote {lockfile} with {len(lock['artifacts'])} downloads")
 
 
@@ -972,7 +990,7 @@ def lock(ns):
     import project_inputs
     records = project_inputs.pin(references, previous, refresh=ns.update is not None)
     views = project_inputs.python_views(records, os.path.join(roots(lockfile), "project-inputs"))
-    configuration = python_bindings.write(views, [], Path(roots(lockfile)) / "bindings", python=ns.python or PYTHON) if views else None
+    configuration = python_bindings.write(views, [], Path(roots(lockfile)) / "bindings", python=local_python(project, lockfile, ns.python)) if views else None
     previous_environment = os.environ.get("PIP_PURIFIER_BINDINGS")
     try:
         if configuration:
@@ -1051,7 +1069,7 @@ def roots(lockfile):
 def inputs_of(project, lockfile, pylock=None):
     """The project's offline inputs, kept alive by a garbage-collector root
     under .pip-purifier/."""
-    return nix_build(project, lockfile, "inputs", out_link=os.path.join(roots(lockfile), "inputs"), pylock=pylock)
+    return nix_build(project, lockfile, "localInputs", out_link=os.path.join(roots(lockfile), "inputs"), pylock=pylock)
 
 
 def prefetch_command(ns):
@@ -1063,22 +1081,23 @@ def prefetch_command(ns):
     lockfile = lockfile_path(ns, project)
     pylock = tool_lockfile_path(ns)
     locked = read_lock(project, lockfile, pylock)
+    target_python = local_python(project, lockfile, venv=ns.venv)
+    python_identity.validate(target_python, locked["python"], locked.get("pythonAbi"))
     if ns.inputs:
         inputs = ns.inputs
     else:
         inputs = inputs_of(project, lockfile, pylock)
         # The command package holds the installer SDK, nixpkgs and purifier
-        # library. The rooted inputs hold the selected target interpreter.
+        # library. The rooted inputs hold the locked artifacts.
         package = os.path.dirname(os.path.dirname(os.path.dirname(NIX_LIB)))
         subprocess.run(
             ["nix-store", "--add-root", os.path.join(roots(lockfile), "pip-purifier"), "--realise", package],
             stdout=subprocess.DEVNULL,
             check=True,
         )
-    target_python = os.path.join(inputs, "python", "bin", "python")
-    if not os.path.exists(target_python):
-        die("the offline inputs have no target Python. Rebuild them with this pip-purifier before using --inputs.")
-    python_identity.validate(target_python, locked["python"], locked.get("pythonAbi"))
+    required = ["wheelhouse", "args.json", "pins.txt", "sources.json", "repositories.json", "shims.json", "versions.json"]
+    if any(not os.path.exists(os.path.join(inputs, name)) for name in required):
+        die("the offline inputs are incomplete. Rebuild them with `pip-purifier prefetch`.")
     venv = os.path.abspath(ns.venv)
     venv_python = os.path.join(venv, "bin", "python")
     if not os.path.exists(venv_python):
@@ -1089,28 +1108,27 @@ def prefetch_command(ns):
         existing = subprocess.check_output([venv_python, "-c", identity], text=True).strip()
         if existing != target:
             die(f"{venv} uses a different Python version or ABI than the lock. Recreate the virtual environment, or choose a new --venv path.")
-    offline.install(PIP, project, inputs, venv, editable=True, extra=ns.pip_args, pylock=pylock)
+    offline.install(PIP, project, inputs, venv, editable=True, extra=ns.pip_args, pylock=pylock, repair_native=False)
 
 
 def pip(ns):
     project = os.getcwd()
     lockfile = lockfile_path(ns, project)
-    if not os.path.exists(lockfile):
-        log("warning: no lockfile; pip is resolving dependencies impurely")
-        raise SystemExit(subprocess.run(PIP + ns.pip_args).returncode)
-    locked = read_lock(project, lockfile, tool_lockfile_path(ns))
-    # Let pip interpret its own global/configuration options, including
-    # --python and PIP_PYTHON, before validating the actual selected target.
     from pip._internal.cli.main_parser import create_main_parser
     options, _ = create_main_parser().parse_args(ns.pip_args)
-    target = options.python or sys.executable
+    target = options.python or local_python(project, lockfile)
+    pip_args = ns.pip_args if options.python else ["--python", target, *ns.pip_args]
+    if not os.path.exists(lockfile):
+        log("warning: no lockfile; pip is resolving dependencies impurely")
+        raise SystemExit(subprocess.run(PIP + pip_args).returncode)
+    locked = read_lock(project, lockfile, tool_lockfile_path(ns))
     if os.path.isdir(target):
         target = os.path.join(target, "bin", "python")
     python_identity.validate(target, locked["python"], locked.get("pythonAbi"))
     inputs = inputs_of(project, lockfile, tool_lockfile_path(ns))
     env = offline.environment(inputs)
     env["PIP_CONSTRAINT"] = os.path.join(inputs, "pins.txt")
-    offline.run_pip(PIP + ns.pip_args, project, env, stdout=True)
+    offline.run_pip(PIP + pip_args, project, env, stdout=True)
 
 
 def publish(ns):
@@ -1142,7 +1160,7 @@ def main():
     p.add_argument("--lockfile", help=lockfile_help)
     p.add_argument("--tool-lockfile", help=tool_lockfile_help)
     p.add_argument("--input", action="append", help="a Nix producer exposing projections.python")
-    p.add_argument("--python", help="the Python interpreter pip installs for (default: the Python of this package set)")
+    p.add_argument("--python", help="the Python interpreter pip installs for (default: the existing project environment or Python on PATH)")
     p.add_argument("--system", action="append", choices=list(SYSTEMS), help=system_help)
     p.add_argument("pip_args", nargs="*", metavar="-- PIP-ARG", help="the arguments of `pip install` (default: -r pylock.toml, -r requirements.txt, or .)")
     p.set_defaults(run=lock, update=None)
@@ -1154,7 +1172,7 @@ def main():
     p.add_argument("--lockfile", help=lockfile_help)
     p.add_argument("--tool-lockfile", help=tool_lockfile_help)
     p.add_argument("--input", action="append", help="a Nix producer exposing projections.python")
-    p.add_argument("--python", help="the Python interpreter pip installs for (default: the Python of this package set)")
+    p.add_argument("--python", help="the Python interpreter pip installs for (default: the existing project environment or Python on PATH)")
     p.add_argument("--system", action="append", choices=list(SYSTEMS), help=system_help)
     p.add_argument("update", nargs="*", metavar="PACKAGE", help="a package to update (default: every package)")
     p.set_defaults(run=update)
