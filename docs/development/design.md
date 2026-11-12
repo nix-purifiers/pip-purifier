@@ -63,6 +63,21 @@ pip as `--build-constraint` (`Rewriter.build_constraints` in
 `pkgs/build-pip-project/pip_inputs.py`), in the lock run and in the offline install, so
 the build environments of sdists use the project's versions.
 
+## Runtime identity in locks
+
+Regular CPython captures retain format 4 without an ABI field. Free-threaded
+captures use format 5 with required canonical `pythonAbi` (for example
+`cp315t`), even when every dependency is pure Python or the graph is empty.
+Readers validate the format-specific shape; older readers refuse format 5.
+The actual target interpreter supplies its ABI and compatible tags, including
+`abi3t` rather than `abi3` for free-threaded CPython. Wheel filtering and
+cross-system downloads use those tags.
+
+Sandboxed builds check the supplied SDK's primary ABI metadata, then probe the
+actual interpreter before dependency installation. Local wrapper targets are
+also probed before realizing inputs. A matching major/minor version alone does
+not establish ABI compatibility.
+
 ## The Nix library
 
 `readLock` (`lib-overlays/default/read-lock.nix`) reads the lockfile into the lock shape

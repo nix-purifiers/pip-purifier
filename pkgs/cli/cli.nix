@@ -55,19 +55,36 @@ let
   purifier = import ../../purifier/nix/lib { inherit lib; };
 
   inherit (import ../../lib-overlays/default/read-lock.nix { inherit lib; }) readLock;
-  project = pkgs.callPackage ../build-pip-project/default.nix { inherit purifier readLock; } (
-    {
-      src = source root;
-      lockFile = lockPath;
-      lockData = lock;
-      python =
-        pkgs.${"python" + builtins.replaceStrings [ "." ] [ "" ] lock.python}
-          or (throw "pip-purifier: nixpkgs has no Python ${lock.python}");
-      inherit pathSources;
-    }
-    // lib.optionalAttrs (pylock != "") {
-      pylock = /. + pylock;
-    }
+  validated = purifier.checkLock (
+    readLock (
+      {
+        src = source root;
+        lockFile = lockPath;
+        lockData = lock;
+        inherit pathSources;
+      }
+      // lib.optionalAttrs (pylock != "") { pylock = /. + pylock; }
+    )
+  );
+  project = builtins.seq validated (
+    pkgs.callPackage ../build-pip-project/default.nix { inherit purifier readLock; } (
+      {
+        src = source root;
+        lockFile = lockPath;
+        lockData = lock;
+        python =
+          pkgs.${
+            "python"
+            + builtins.replaceStrings [ "." ] [ "" ] lock.python
+            + lib.optionalString (lib.hasSuffix "t" (lock.pythonAbi or "")) "FreeThreading"
+          }
+            or (throw "pip-purifier: nixpkgs has no Python ${lock.python} with ABI ${lock.pythonAbi or "regular"}");
+        inherit pathSources;
+      }
+      // lib.optionalAttrs (pylock != "") {
+        pylock = /. + pylock;
+      }
+    )
   );
 in
 if lock.projectInputs or [ ] != [ ] && (attr == "release" || lib.hasPrefix "packages." attr) then

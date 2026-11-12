@@ -75,6 +75,24 @@ class Wheels(unittest.TestCase):
         self.assertNotIn("macosx_15_0_arm64", macos)
         self.assertFalse(any("linux" in arg for arg in macos))
 
+    def test_regular_and_free_threaded_abis_match_native_pip(self):
+        # Eight native pip dry runs on real regular/free-threaded 3.15
+        # establish this matrix; pure-Python wheels remain compatible with both.
+        profiles = [(None, {"cp315", "abi3"}), (["cp315t", "abi3t", "none"], {"cp315t", "abi3t"})]
+        for abis, accepted in profiles:
+            for abi in ["cp315", "cp315t", "abi3", "abi3t"]:
+                with self.subTest(profile=abis, abi=abi):
+                    name = f"probe-1.0-cp315-{abi}-linux_x86_64.whl"
+                    self.assertEqual(pp.wheel_runs_on(name, "x86_64", "3.15", abis), abi in accepted)
+            self.assertTrue(pp.wheel_runs_on("probe-1.0-py3-none-any.whl", "x86_64", "3.15", abis))
+        free = ["cp315t", "abi3t", "none"]
+        self.assertFalse(pp.wheel_runs_on("probe-1.0-cp314-abi3t-linux_x86_64.whl", "x86_64", "3.15", free))
+        args = pp.platform_args("aarch64", "3.15", free)
+        self.assertIn("cp315t", args)
+        self.assertIn("abi3t", args)
+        self.assertNotIn("cp315", args)
+        self.assertNotIn("abi3", args)
+
 
 class Urls(unittest.TestCase):
     def test_strip_credentials(self):
@@ -170,6 +188,23 @@ class Lockfiles(unittest.TestCase):
         self.assertEqual(pp.read_lock(self.project, self.write(text)), self.lock)
         outside = self.write(text, os.path.join(self.tmp.name, "elsewhere.json"))
         self.assertEqual(pp.read_lock(self.project, outside), self.lock)
+
+    def test_format5_requires_abi_even_without_binary_wheels(self):
+        lock = dict(self.lock, version=5, python="3.15", pythonAbi="cp315t")
+        lock["hash"] = pp.lock_hash(lock)
+        self.assertEqual(pp.read_lock(self.project, self.write(json.dumps(lock))), lock)
+        for changed in [{"pythonAbi": None}, {"pythonAbi": "cp314t"}, {"pythonAbi": "abi3t"}]:
+            bad = dict(lock, **changed)
+            bad["hash"] = pp.lock_hash(bad)
+            self.fails(self.write(json.dumps(bad)), "ABI")
+        del lock["pythonAbi"]
+        lock["hash"] = pp.lock_hash(lock)
+        self.fails(self.write(json.dumps(lock)), "ABI")
+
+    def test_legacy_format4_cannot_smuggle_abi_identity(self):
+        lock = dict(self.lock, python="3.15", pythonAbi="cp315t")
+        lock["hash"] = pp.lock_hash(lock)
+        self.fails(self.write(json.dumps(lock)), "ABI")
 
     def test_reads_a_pylock_kept_outside_the_project(self):
         # The lockfile names pylock.toml, which only the outside copy holds.

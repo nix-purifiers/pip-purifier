@@ -50,6 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pip_inputs
 import native_runtime
+import python_identity
 
 
 def environment(inputs):
@@ -224,6 +225,7 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
     """Installs the project's inputs into the virtual environment `venv`
     with `pip`, a command that runs pip. `editable` keeps editable installs
     editable; the Nix build turns them into plain installs."""
+    python_identity.validate_inputs(inputs, os.path.join(venv, "bin", "python"))
     sources = load(inputs, "sources.json")
     versions = load(inputs, "versions.json")
     args = load(inputs, "args.json")

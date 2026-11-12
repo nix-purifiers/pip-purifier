@@ -134,6 +134,12 @@ let
       throw "pip-purifier: ${file} has no lock for ${system}; it covers ${toString (attrNames read.lockfile.pins)}. Run `pip-purifier lock`."
     else if python.pythonVersion != read.lockfile.python then
       throw "pip-purifier: ${file} was made for Python ${read.lockfile.python}, and this build uses Python ${python.pythonVersion}. Pass a `python` of version ${read.lockfile.python}, or run `pip-purifier lock --python` with this one."
+    else if
+      !(lib.elem (read.lockfile.pythonAbi
+        or ("cp" + builtins.replaceStrings [ "." ] [ "" ] read.lockfile.python)
+      ) (python.pythonABITags or [ ]))
+    then
+      throw "pip-purifier: ${file} has a Python ABI mismatch with this SDK. Pass a matching `python`, or run `pip-purifier lock --python` with this one."
     else
       read.lockfile
   );
@@ -261,6 +267,12 @@ let
   inputs = runCommand "pip-purifier-inputs" { } ''
     mkdir -p $out
     ln -s ${python} $out/python
+    cp ${
+      writeText "python-identity.json" (toJSON {
+        python = checked.python;
+        pythonAbi = checked.pythonAbi or ("cp" + builtins.replaceStrings [ "." ] [ "" ] checked.python);
+      })
+    } $out/python-identity.json
     ${lib.optionalString stdenv.hostPlatform.isLinux ''
       cp ${
         writeText "native-runtime.json" (toJSON {
@@ -291,6 +303,7 @@ let
     fileset = lib.fileset.unions [
       ./offline.py
       ./native_runtime.py
+      ./python_identity.py
       ./pip_runner.py
       ./pip_inputs.py
       ./vcs_shim.py

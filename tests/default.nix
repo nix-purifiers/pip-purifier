@@ -426,6 +426,10 @@ in
     ${lib.getExe cli} publish --help
     touch $out
   '';
+  abi-locks = import ./abi-locks.nix {
+    inherit pkgs;
+    buildPipProject = build;
+  };
 }
 // import ./conformance.nix {
   inherit pkgs;
