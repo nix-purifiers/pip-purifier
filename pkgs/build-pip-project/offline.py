@@ -221,7 +221,7 @@ def load(inputs, name):
         return json.load(f)
 
 
-def install(pip, project, inputs, venv, editable, extra=(), pylock=None, repair_native=True):
+def install(pip, project, inputs, venv, editable, extra=(), pylock=None, repair_native=True, installer_env=None):
     """Installs the project's inputs into the virtual environment `venv`
     with `pip`, a command that runs pip. `editable` keeps editable installs
     editable; the Nix build turns them into plain installs."""
@@ -276,6 +276,7 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None, repair_
             *rewritten,
         ]
         env = environment(inputs)
+        env.update(installer_env or {})
         if os.environ.get("PIP_PURIFIER_EXPORT_WHEELS"):
             env["PIP_PURIFIER_EXPORT_WHEELS"] = os.environ["PIP_PURIFIER_EXPORT_WHEELS"]
         serve_repositories(inputs, tmp, env)

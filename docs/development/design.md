@@ -114,3 +114,21 @@ partial clone of a shallow repository fetches the shallow commit's parent
 again and again. A Mercurial, Subversion or Bazaar
 repository named in metadata is answered by `pkgs/build-pip-project/vcs_shim.py`, and a URL
 named in metadata by `mitm-cache replay`.
+
+## Local installer management tools
+
+`installer_driver.py` selects a hash-bound pip payload independently of the
+project runtime. Candidate wheel metadata supplies `Requires-Python`; the actual
+existing interpreter probes the runner, supported options and native `--python`
+delegation before a target environment is created or reused. Local replay selects
+the lock's recorded pip version and checks any retained capture payload hash.
+The payload is a separate tool, not a distribution installed into the project.
+Capture records its actual resolver version; regular current-runtime locks retain
+their existing bytes. Local state retains the selected tool identity beside the
+runtime selection. Missing candidates or capabilities fail explicitly.
+
+The initial compatible driver supports the tested older-runtime capture/replay
+path. Older-pip build-constraint semantics and pylock handling remain separate
+unproven gates; capture refuses unsupported generated build constraints before
+creating its temporary target environment. No native adapter or pylock lowering
+has been silently introduced by installer selection.

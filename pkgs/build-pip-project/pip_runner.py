@@ -8,6 +8,13 @@ import shutil
 import sys
 import tempfile
 
+def sha256_file(source):
+    digest = hashlib.sha256()
+    for block in iter(lambda: source.read(1024 * 1024), b''):
+        digest.update(block)
+    return digest
+
+
 native_paths = sys.path.copy()
 if os.environ.get('PIP_PURIFIER_PIP_PATH'):
     sys.path.insert(0, os.environ['PIP_PURIFIER_PIP_PATH'])
@@ -19,6 +26,21 @@ from pip._internal.cli.main import main
 # Build-isolation subprocesses retain pip's original entry point instead.
 os.environ['PIP_PURIFIER_PIP_PATH'] = str(Path(pip.__file__).parent.parent)
 main_parser.get_runnable_pip = lambda: str(Path(__file__).resolve())
+
+if sys.argv[1:] == ['--purifier-probe']:
+    from pip._internal.commands import create_command
+    from pip._internal.req import req_install
+    from pip._internal.operations.install import wheel
+    parser = create_command('install').parser
+    capabilities = [name for name, option in [
+        ('report', '--report'), ('build-constraint', '--build-constraint'),
+        ('pylock', '--pylock')] if parser.has_option(option)]
+    if main_parser.create_main_parser().has_option('--python'):
+        capabilities.append('python')
+    if callable(getattr(wheel, 'install_wheel', None)):
+        capabilities.append('wheel-capture')
+    print(json.dumps({'pip': pip.__version__, 'capabilities': capabilities}))
+    sys.exit(0)
 
 bindings = os.environ.get('PIP_PURIFIER_BINDINGS')
 if bindings:
@@ -39,7 +61,7 @@ if bindings:
             requirement.link = requirement.original_link = Link(wheel.as_uri())
             requirement.local_file_path = str(wheel)
             with wheel.open('rb') as source:
-                requirement.hash_options = {'sha256': [hashlib.file_digest(source, 'sha256').hexdigest()]}
+                requirement.hash_options = {'sha256': [sha256_file(source).hexdigest()]}
         yield from original(self, requirement, requested_extras)
 
     Factory._make_requirements_from_install_req = requirements
@@ -85,7 +107,7 @@ if capture:
                 os.link(temporary_path, destination / wheel.name)
             except FileExistsError:
                 with wheel.open('rb') as source, (destination / wheel.name).open('rb') as previous:
-                    if hashlib.file_digest(source, 'sha256').digest() != hashlib.file_digest(previous, 'sha256').digest():
+                    if sha256_file(source).digest() != sha256_file(previous).digest():
                         raise ValueError('conflicting native wheel bytes: ' + wheel.name)
         finally:
             temporary_path.unlink()
