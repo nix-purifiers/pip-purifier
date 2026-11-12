@@ -47,7 +47,8 @@ def select(target, expected=None, required=(), previous=None):
             continue
         if previous and any(candidate[key] != previous[key] for key in ('version', 'sha256')):
             continue
-        environment = {'PIP_PURIFIER_PIP_PATH': candidate['path']}
+        environment = {'PIP_PURIFIER_PIP_PATH': candidate['path'],
+                       'PIP_PURIFIER_DRIVER_SHA256': candidate['sha256']}
         probe = subprocess.run([str(target), '-I', runner, '--purifier-probe'],
             env=dict(os.environ, **environment), capture_output=True, text=True)
         if probe.returncode:
@@ -64,6 +65,12 @@ def select(target, expected=None, required=(), previous=None):
         if delegation.returncode or not delegation.stdout.startswith('pip ' + candidate['version'] + ' '):
             failures.append(candidate['version'] + ': native target delegation failed: ' + delegation.stderr.strip())
             continue
+        adapter = facts.get('buildConstraintAdapter')
+        if previous and previous.get('buildConstraintAdapter') and previous['buildConstraintAdapter'] != adapter:
+            failures.append(candidate['version'] + ': build constraint adapter provenance changed')
+            continue
+        if adapter:
+            candidate = dict(candidate, buildConstraintAdapter=adapter)
         # The runner executes on the selected existing runtime, including
         # its native --python delegation. No helper distribution is installed.
         return {'command': [str(target), '-I', runner], 'environment': environment,

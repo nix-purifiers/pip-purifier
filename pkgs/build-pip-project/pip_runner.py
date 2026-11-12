@@ -16,7 +16,9 @@ def sha256_file(source):
     return digest
 
 
-native_paths = sys.path.copy()
+runtime_directory = str(Path(__file__).resolve().parent)
+native_paths = [path for path in sys.path if path != runtime_directory]
+sys.path.insert(0, runtime_directory)
 if os.environ.get('PIP_PURIFIER_PIP_PATH'):
     sys.path.insert(0, os.environ['PIP_PURIFIER_PIP_PATH'])
 import pip
@@ -48,6 +50,13 @@ def binding_protocol():
     return None
 
 
+from pip._internal.commands import create_command
+native_build_constraints = create_command('install').parser.has_option('--build-constraint')
+constraint_adapter = False
+if not native_build_constraints:
+    import legacy_build_constraints
+    constraint_adapter = legacy_build_constraints.available()
+
 if sys.argv[1:] == ['--purifier-probe']:
     from pip._internal.commands import create_command
     from pip._internal.req import req_install
@@ -60,12 +69,18 @@ if sys.argv[1:] == ['--purifier-probe']:
         capabilities.append('python')
     if callable(getattr(wheel, 'install_wheel', None)):
         capabilities.append('wheel-capture')
+    if constraint_adapter:
+        capabilities.append('build-constraint')
     binding_error = binding_protocol()
     if binding_error is None:
         capabilities.append('producer-bindings')
     print(json.dumps({'pip': pip.__version__, 'capabilities': capabilities,
-                      'bindingError': binding_error}))
+                      'bindingError': binding_error,
+                      'buildConstraintAdapter': legacy_build_constraints.IDENTITY if constraint_adapter else None}))
     sys.exit(0)
+
+if constraint_adapter:
+    legacy_build_constraints.activate(Path(__file__).resolve())
 
 bindings = os.environ.get('PIP_PURIFIER_BINDINGS')
 if bindings:

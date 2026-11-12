@@ -184,6 +184,7 @@ let
       ./native_runtime.py
       ./python_identity.py
       ./pip_runner.py
+      ./legacy_build_constraints.py
       ./pip_inputs.py
       ./vcs_shim.py
     ];

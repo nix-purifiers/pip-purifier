@@ -22,7 +22,7 @@ class Selection(unittest.TestCase):
             selected = driver.select('/existing/python', required=['report'])
             self.assertEqual(selected['identity']['version'], '25.0.1')
             self.assertEqual(selected['command'][0], '/existing/python')
-            self.assertEqual(selected['environment'], {'PIP_PURIFIER_PIP_PATH': '/compatible'})
+            self.assertEqual(selected['environment'], {'PIP_PURIFIER_PIP_PATH': '/compatible', 'PIP_PURIFIER_DRIVER_SHA256': 'compatible'})
             self.assertIn('--python', run.call_args_list[1].args[0])
 
     def test_missing_capability_refuses_before_delegation(self):

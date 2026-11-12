@@ -127,11 +127,20 @@ Capture records its actual resolver version; regular current-runtime locks retai
 their existing bytes. Local state retains the selected tool identity beside the
 runtime selection. Missing candidates or capabilities fail explicitly.
 
-The initial compatible driver supports the tested older-runtime capture/replay
-path. Older-pip build-constraint semantics and pylock handling remain separate
-unproven gates; capture refuses unsupported generated build constraints before
-creating its temporary target environment. No native adapter or pylock lowering
-has been silently introduced by installer selection.
+The compatible driver supports the tested older-runtime capture/replay path.
+A hash-certified pip 25 management payload can forward build constraints only
+to its isolated dependency-install children. Each child receives runtime
+constraints for its build requirements and forwarded build constraints for
+nested source builds. The top-level runtime requirements and any existing user
+constraints remain unchanged. Unknown child shapes and incompatible adapter
+provenance are refused. Native-feature drivers keep their native implementation.
+Pylock lowering remains a separate unsupported gate for older helpers.
+
+Capture preserves build constraints, config settings and isolation options
+through wheel naming and sdist generation. The build management library runs
+separately; backend hooks and isolated build dependencies use the selected
+existing project interpreter. Capture does not substitute the helper's runtime
+when generating source artifacts.
 
 Producer-binding mode additionally requires the exact Factory and Distribution
 hook signatures and the active metadata backend that this runner patches.

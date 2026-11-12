@@ -95,6 +95,21 @@ class Wheels(unittest.TestCase):
         self.assertNotIn("abi3", args)
 
 
+class SourceBuildOptions(unittest.TestCase):
+    def test_build_options_survive_without_runtime_constraint_broadening(self):
+        flags, constraints, settings, isolated = pp.source_build_options([
+            "--constraint", "runtime.txt", "--build-constraint=build.txt",
+            "--config-settings", "feature=one", "-Cfeature=two", "--no-build-isolation", "."])
+        self.assertEqual(flags, ["--build-constraint", "build.txt", "--config-settings", "feature=one",
+                                 "--config-settings", "feature=two", "--no-build-isolation"])
+        self.assertEqual(constraints, ["build.txt"])
+        self.assertEqual(settings, {"feature": ["one", "two"]})
+        self.assertFalse(isolated)
+
+    def test_option_separator_preserves_literal_arguments(self):
+        self.assertEqual(pp.source_build_options(["--", "--build-constraint", "literal"]), ([], [], {}, True))
+
+
 class LocalRuntime(unittest.TestCase):
     def test_project_runtime_and_recorded_runtime_precede_path(self):
         with tempfile.TemporaryDirectory() as directory:

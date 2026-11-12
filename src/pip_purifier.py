@@ -695,6 +695,75 @@ def run_pip(args, env, cwd, check=True):
     return result.returncode == 0
 
 
+def source_build_options(args):
+    """Preserve backend options through every capture artifact operation."""
+    flags, constraints, settings = [], [], {}
+    isolated = True
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            break
+        option, equals, value = arg.partition("=")
+        if arg == "--no-build-isolation":
+            isolated = False
+            flags.append(arg)
+        elif option in ("--build-constraint", "--config-settings") or arg == "-C" or arg.startswith("-C"):
+            if arg.startswith("-C") and arg != "-C":
+                option, value, equals = "--config-settings", arg[2:], "="
+            elif arg == "-C":
+                option = "--config-settings"
+            if not equals:
+                index += 1
+                value = args[index]
+            flags += [option, value]
+            if option == "--build-constraint":
+                constraints.append(value)
+            else:
+                key, _, setting = value.partition("=")
+                if key in settings:
+                    previous = settings[key]
+                    settings[key] = [*previous, setting] if isinstance(previous, list) else [previous, setting]
+                else:
+                    settings[key] = setting
+        index += 1
+    return flags, constraints, settings, isolated
+
+
+def source_sdist(directory, destination, python, env, constraints, settings, isolated):
+    """Run backend hooks on the project runtime; management tools stay separate."""
+    import build
+
+    def backend_runner(command, cwd=None, extra_environ=None):
+        subprocess.run(command, cwd=cwd, env={**env, **(extra_environ or {})}, check=True)
+
+    if not isolated:
+        builder = build.ProjectBuilder(directory, python_executable=python, runner=backend_runner)
+        return builder.build("sdist", destination, config_settings=settings)
+    with tempfile.TemporaryDirectory(prefix="pip-purifier-sdist-") as temporary:
+        venv = os.path.join(temporary, "venv")
+        subprocess.run([python, "-m", "venv", "--without-pip", venv], env=env, check=True)
+
+        class ProjectEnvironment:
+            python_executable = os.path.join(venv, "bin", "python")
+
+            def make_extra_environ(self):
+                return {"PATH": os.path.join(venv, "bin") + os.pathsep + env.get("PATH", "")}
+
+            def install(self, requirements):
+                if requirements:
+                    arguments = ["--python", self.python_executable, "install"]
+                    for constraint in constraints:
+                        arguments += ["--constraint", constraint, "--build-constraint", constraint]
+                    run_pip([*arguments, *sorted(requirements)], env, directory)
+
+        environment = ProjectEnvironment()
+        builder = build.ProjectBuilder.from_isolated_env(environment, directory, runner=backend_runner)
+        environment.install(builder.build_system_requires)
+        environment.install(builder.get_requires_for_build("sdist", config_settings=settings))
+        return builder.build("sdist", destination, config_settings=settings)
+
+
 def report_items(path):
     with open(path) as f:
         return json.load(f).get("install", [])
@@ -824,13 +893,14 @@ def native_lock(ns):
             and not re.match(r"^(activate.*|Activate\.ps1)$", name)
         )
         packages = {}
+        build_flags, build_constraints, config_settings, build_isolated = source_build_options(lock_args)
         for rel in rewriter.dirs:
             directory = os.path.join(project, rel)
             if rel.startswith("..") or not any(os.path.exists(os.path.join(directory, n)) for n in ("pyproject.toml", "setup.py")):
                 continue
             dist = os.path.join(tmp, "dist", rel.replace(os.sep, "_"))
-            run_pip(["--python", os.path.join(venv, "bin", "python"), "wheel", "--no-deps", "--wheel-dir", dist, directory], env, project)
-            subprocess.run([sys.executable, "-m", "build", "--sdist", "--outdir", dist, directory], env=env, cwd=project, check=True)
+            run_pip(["--python", os.path.join(venv, "bin", "python"), "wheel", "--no-deps", "--wheel-dir", dist, *build_flags, directory], env, project)
+            source_sdist(directory, dist, os.path.join(venv, "bin", "python"), env, build_constraints, config_settings, build_isolated)
             names = os.listdir(dist)
             wheel = next(n for n in names if n.endswith(".whl"))
             sdist = next(n for n in names if not n.endswith(".whl"))
