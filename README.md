@@ -73,7 +73,10 @@ pip-purifier pip --python .venv/bin/python list
 On Linux, installed binary wheels receive Nix search paths for the C++ runtime
 and zlib, so their extensions also load when running `.venv/bin/python`
 directly. Existing vendor library paths are preserved and installed `RECORD`
-hashes are refreshed. The locked wheel archives remain unchanged. For additional
+hashes are refreshed, including after the Nix build's fixups. Bundled dynamic
+ELF executables for the target architecture also receive the Nix loader;
+static and foreign-architecture binaries remain unchanged. The locked wheel
+archives remain unchanged. For additional
 shared libraries in a Nix build, pass `runtimeLibraries` to `buildPipProject`;
 that option replaces the default library list.
 

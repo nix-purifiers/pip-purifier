@@ -42,6 +42,10 @@ The Linux `native-runtime` check compiles a C++/zlib shared library without Nix
 runtime paths and proves that loading fails before repair and succeeds after
 repair with `LD_LIBRARY_PATH` unset. It also checks preservation of vendor
 `$ORIGIN` paths, installed wheel `RECORD` hashes and repeated repair.
+It also executes a bundled C++ program with a deliberately missing loader,
+checks that static and foreign-architecture binaries remain unchanged, and
+verifies RECORD refresh after a subsequent file modification. Environment
+builds refresh hashes again after Nix's final strip/shebang fixups.
 
 The opt-in [HTTPX Python3.13 diagnostic](../../tests/real-world/httpx-python313/README.md)
 retains a pinned real-project failure and a matched raw-pip baseline. Both

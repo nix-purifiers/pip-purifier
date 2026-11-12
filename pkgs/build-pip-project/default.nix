@@ -265,6 +265,7 @@ let
       cp ${
         writeText "native-runtime.json" (toJSON {
           patchelf = "${patchelf}/bin/patchelf";
+          dynamicLinker = stdenv.cc.bintools.dynamicLinker;
           libraryPath = lib.makeLibraryPath runtimeLibraries;
         })
       } $out/native-runtime.json
@@ -360,6 +361,9 @@ let
         runHook postBuild
       '';
       dontInstall = true;
+      postFixup = ''
+        ${python.interpreter} -I ${scripts}/native_runtime.py "$out"
+      '';
       passthru = {
         inherit inputs;
       };
