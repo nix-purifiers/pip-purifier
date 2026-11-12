@@ -144,7 +144,7 @@ let
         cp -r ${shimInputs}/user user
         chmod -R u+w user
         python -m venv --without-pip venv
-        python ${../nix/lib}/offline.py --project $PWD --inputs ${shimInputs} --venv venv --no-editable
+        python ${../pkgs/build-pip-project}/offline.py --project $PWD --inputs ${shimInputs} --venv venv --no-editable
         # Each package is installed, and pip recorded the locked revision
         # that the shim reported.
         venv/bin/python - <<'EOF'
@@ -402,10 +402,10 @@ in
       ''
         export HOME=$TMPDIR
         ${pkgs.python3.interpreter} ${./network_check.py} > network.json
-        export PIP_PURIFIER_NIX_LIB=${../nix/lib}
+        export PIP_PURIFIER_NIX_LIB=${../.}/pkgs/build-pip-project
         export PIP_PURIFIER_PYTHON=${pkgs.python3.interpreter}
         export PIP_PURIFIER_NIXPKGS=${pkgs.path}
-        export PYTHONPATH=${../nix/lib}:${../src}
+        export PYTHONPATH=${../pkgs/build-pip-project}:${../src}
         python -m unittest discover -s ${./unit} -v
         mkdir -p $out
         cp network.json $out/network.json

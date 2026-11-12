@@ -52,10 +52,10 @@ let
 
   # The purifier library at the revision this pip-purifier's flake.lock
   # pins, which the command's package links beside this directory.
-  purifier = import ../purifier/nix/lib { inherit lib; };
+  purifier = import ../../purifier/nix/lib { inherit lib; };
 
-  inherit (import ./read-lock.nix { inherit lib; }) readLock;
-  project = pkgs.callPackage ./build-pip-project.nix { inherit purifier readLock; } (
+  inherit (import ../../lib-overlays/default/read-lock.nix { inherit lib; }) readLock;
+  project = pkgs.callPackage ../build-pip-project/default.nix { inherit purifier readLock; } (
     {
       src = source root;
       lockFile = lockPath;

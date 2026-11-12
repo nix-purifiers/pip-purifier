@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests of nix/lib/pip_inputs.py: requirement parsing and the
+"""Unit tests of pkgs/build-pip-project/pip_inputs.py: requirement parsing and the
 rewriting of pip's inputs in lock and offline modes."""
 
 import os

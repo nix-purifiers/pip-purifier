@@ -152,7 +152,7 @@ class Lockfiles(unittest.TestCase):
         self.assertIn("Run `pip-purifier lock`", stderr.getvalue())
 
     def test_hash_matches_nix(self):
-        # builtins.toJSON of the same set, hashed by Nix (nix/lib/read-lock.nix).
+        # builtins.toJSON of the same set, hashed by Nix (lib-overlays/default/read-lock.nix).
         lock = {
             "version": 3,
             "hash": "x",

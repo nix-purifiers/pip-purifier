@@ -2,7 +2,7 @@
 #
 # The default package overlay. It adds one attribute to the package set,
 # the scope `pkgs.pip-purifier`, which holds the packages of pkgs/ (`.cli`)
-# and the builder `buildPipProject` (nix/lib/build-pip-project.nix). The
+# and the builder `buildPipProject` (pkgs/build-pip-project/default.nix). The
 # builder is a package of the scope for callPackage, and gets the
 # `purifier` library of this flake's closure and `readLock` of its own
 # library. `pip-purifier.overrideScope` replaces what the scope shares,
@@ -24,7 +24,7 @@ in
     // {
       pip-purifier = added.pip-purifier.overrideScope (
         self: super: {
-          buildPipProject = self.callPackage ../../nix/lib/build-pip-project.nix {
+          buildPipProject = self.callPackage ../../pkgs/build-pip-project/default.nix {
             inherit (closure-lib) purifier;
             inherit (closure-lib.pip-purifier) readLock;
           };

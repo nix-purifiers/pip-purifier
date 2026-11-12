@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests of nix/lib/offline.py and nix/lib/vcs_shim.py: tagging a copy
+"""Unit tests of pkgs/build-pip-project/offline.py and pkgs/build-pip-project/vcs_shim.py: tagging a copy
 with its locked version, the git that clones without a filter, and the
 answers of the hg, svn and bzr shims."""
 
