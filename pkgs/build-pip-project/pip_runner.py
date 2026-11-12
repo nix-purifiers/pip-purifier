@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Run native pip with Nix repository bindings and optional wheel capture."""
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,26 @@ from pip._internal.cli.main import main
 os.environ['PIP_PURIFIER_PIP_PATH'] = str(Path(pip.__file__).parent.parent)
 main_parser.get_runnable_pip = lambda: str(Path(__file__).resolve())
 
+def binding_protocol():
+    """Check the exact hooks this runner patches, before any pip operation."""
+    try:
+        from pip._internal.models.link import Link
+        from pip._internal.resolution.resolvelib.factory import Factory
+        from pip._internal.metadata import select_backend
+        from pip._internal.metadata.importlib._dists import Distribution
+        from pip._vendor.packaging.requirements import Requirement
+        from pip._vendor.packaging.utils import canonicalize_name
+        if select_backend().Distribution is not Distribution:
+            return 'the active metadata backend is not the validated binding backend'
+        inspect.signature(Factory._make_requirements_from_install_req).bind(None, None, set())
+        inspect.signature(Distribution.iter_dependencies).bind(None, ())
+        if not all(callable(item) for item in (Link, Requirement, canonicalize_name)):
+            return 'producer binding constructors are unavailable'
+    except (ImportError, AttributeError, TypeError, ValueError) as error:
+        return 'producer binding protocol is unavailable: ' + str(error)
+    return None
+
+
 if sys.argv[1:] == ['--purifier-probe']:
     from pip._internal.commands import create_command
     from pip._internal.req import req_install
@@ -39,11 +60,18 @@ if sys.argv[1:] == ['--purifier-probe']:
         capabilities.append('python')
     if callable(getattr(wheel, 'install_wheel', None)):
         capabilities.append('wheel-capture')
-    print(json.dumps({'pip': pip.__version__, 'capabilities': capabilities}))
+    binding_error = binding_protocol()
+    if binding_error is None:
+        capabilities.append('producer-bindings')
+    print(json.dumps({'pip': pip.__version__, 'capabilities': capabilities,
+                      'bindingError': binding_error}))
     sys.exit(0)
 
 bindings = os.environ.get('PIP_PURIFIER_BINDINGS')
 if bindings:
+    binding_error = binding_protocol()
+    if binding_error:
+        raise SystemExit('pip-purifier: ' + binding_error)
     from pip._internal.models.link import Link
     from pip._internal.resolution.resolvelib.factory import Factory
     from pip._vendor.packaging.requirements import Requirement

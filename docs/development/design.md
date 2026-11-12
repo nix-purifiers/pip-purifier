@@ -132,3 +132,10 @@ path. Older-pip build-constraint semantics and pylock handling remain separate
 unproven gates; capture refuses unsupported generated build constraints before
 creating its temporary target environment. No native adapter or pylock lowering
 has been silently introduced by installer selection.
+
+Producer-binding mode additionally requires the exact Factory and Distribution
+hook signatures and the active metadata backend that this runner patches.
+The probe and the execution path share that check. Unknown or unvalidated
+backends are refused before a local target venv is created/reused, including
+when an explicit offline input view supplies the bindings. Older-runtime
+producer binding support is not inferred from unbound packaging replay.

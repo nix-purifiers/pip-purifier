@@ -43,3 +43,17 @@ class Selection(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, 'no compatible installer'):
                     driver.select('/existing/python', expected=expected, previous=previous)
             run.assert_not_called()
+
+
+class BindingPreflight(unittest.TestCase):
+    def test_missing_binding_hook_refuses_before_native_delegation(self):
+        candidate = dict(path='/compatible', version='25.0.1', requiresPython='>=3.8', sha256='compatible')
+        probe = SimpleNamespace(returncode=0, stderr='', stdout=json.dumps({
+            'pip': '25.0.1', 'capabilities': ['report', 'python', 'wheel-capture'],
+            'bindingError': 'producer binding protocol is unavailable: missing hook'}))
+        with patch.object(driver, 'candidates', return_value=[candidate]), patch.object(
+                driver.subprocess, 'check_output', return_value='3.8.9\n'), patch.object(
+                driver.subprocess, 'run', return_value=probe) as run:
+            with self.assertRaisesRegex(SystemExit, 'missing producer-bindings:.*missing hook'):
+                driver.select('/existing/python', required=['producer-bindings'])
+            self.assertEqual(run.call_count, 1)

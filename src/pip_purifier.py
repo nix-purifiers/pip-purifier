@@ -396,6 +396,8 @@ def activate_installer(target, locked=None, required=(), lockfile=None):
         state = Path(lockfile).parent / ".pip-purifier" / "runtime.json"
         if state.exists():
             previous = json.loads(state.read_text()).get("installer")
+    if os.environ.get("PIP_PURIFIER_BINDINGS") or (locked and locked.get("projectInputs")):
+        required = [*required, "producer-bindings"]
     INSTALLER = installer_driver.select(target, expected=locked["pip"] if locked else None,
         required=["python", "wheel-capture", *required], previous=previous)
     PIP = INSTALLER["command"]
@@ -1124,6 +1126,8 @@ def prefetch_command(ns):
     required = ["wheelhouse", "args.json", "pins.txt", "sources.json", "repositories.json", "shims.json", "versions.json"]
     if any(not os.path.exists(os.path.join(inputs, name)) for name in required):
         die("the offline inputs are incomplete. Rebuild them with `pip-purifier prefetch`.")
+    if os.path.exists(os.path.join(inputs, "python-inputs.json")) and "producer-bindings" not in driver["capabilities"]:
+        driver = activate_installer(target_python, locked=locked, required=["producer-bindings"], lockfile=lockfile)
     venv = os.path.abspath(ns.venv)
     venv_python = os.path.join(venv, "bin", "python")
     if not os.path.exists(venv_python):

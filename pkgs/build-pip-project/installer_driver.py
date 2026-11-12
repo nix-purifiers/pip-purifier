@@ -56,7 +56,8 @@ def select(target, expected=None, required=(), previous=None):
         facts = json.loads(probe.stdout)
         missing = set(required) - set(facts['capabilities'])
         if facts['pip'] != candidate['version'] or missing:
-            failures.append(candidate['version'] + ': missing ' + ', '.join(sorted(missing)))
+            detail = (': ' + facts['bindingError']) if 'producer-bindings' in missing and facts.get('bindingError') else ''
+            failures.append(candidate['version'] + ': missing ' + ', '.join(sorted(missing)) + detail)
             continue
         delegation = subprocess.run([str(target), '-I', runner, '--python', str(target), '--version'],
             env=dict(os.environ, **environment), capture_output=True, text=True)
