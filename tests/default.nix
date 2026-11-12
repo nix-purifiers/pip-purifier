@@ -426,3 +426,6 @@ in
   inherit pkgs;
   buildPipProject = build;
 }
+// lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+  native-runtime = import ./native-runtime.nix { inherit pkgs; };
+}

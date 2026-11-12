@@ -32,6 +32,11 @@
 
 CI runs every job on x86_64-linux and aarch64-linux.
 
+The Linux `native-runtime` check compiles a C++/zlib shared library without Nix
+runtime paths and proves that loading fails before repair and succeeds after
+repair with `LD_LIBRARY_PATH` unset. It also checks preservation of vendor
+`$ORIGIN` paths, installed wheel `RECORD` hashes and repeated repair.
+
 The opt-in [HTTPX Python3.13 diagnostic](../../tests/real-world/httpx-python313/README.md)
 retains a pinned real-project failure and a matched raw-pip baseline. Both
 commands are expected to fail on the same upstream trio warning; the receipt

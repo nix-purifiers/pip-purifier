@@ -60,6 +60,13 @@ pip-purifier prefetch
 pip-purifier pip --python .venv/bin/python list
 ```
 
+On Linux, installed binary wheels receive Nix search paths for the C++ runtime
+and zlib, so their extensions also load when running `.venv/bin/python`
+directly. Existing vendor library paths are preserved and installed `RECORD`
+hashes are refreshed. The locked wheel archives remain unchanged. For additional
+shared libraries in a Nix build, pass `runtimeLibraries` to `buildPipProject`;
+that option replaces the default library list.
+
 After a change to the requirements, `pip-purifier lock` relocks. A relock
 keeps the files of the existing lockfile: for each package that the
 lockfile has, including the build requirements of sdists, the lock run

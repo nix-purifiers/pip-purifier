@@ -49,6 +49,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pip_inputs
+import native_runtime
 
 
 def environment(inputs):
@@ -285,6 +286,7 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
             if replayer:
                 replayer.terminate()
                 replayer.wait()
+        native_runtime.repair(inputs, venv)
 
 
 def run_pip(command, cwd, env, stdout=False):

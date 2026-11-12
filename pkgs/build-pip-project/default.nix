@@ -43,6 +43,8 @@
   writeText,
   symlinkJoin,
   python3,
+  patchelf,
+  zlib,
   # The fetchers of the locked downloads, and the tools that unpack
   # archives and rebuild .git, for the purifier library's fetchEntry.
   fetchurl,
@@ -83,6 +85,12 @@
   # a C library.
   nativeBuildInputs ? [ ],
   buildInputs ? [ ],
+  # Shared libraries required by binary wheels on Linux. Include the C++
+  # runtime and zlib by default; additional libraries remain explicit inputs.
+  runtimeLibraries ? lib.optionals stdenv.hostPlatform.isLinux [
+    stdenv.cc.cc.lib
+    zlib
+  ],
   # Native commands required only by the project's tests.
   nativeCheckInputs ? [ ],
   # A command that tests the project, run in a copy of the source with the
@@ -253,6 +261,14 @@ let
   inputs = runCommand "pip-purifier-inputs" { } ''
     mkdir -p $out
     ln -s ${python} $out/python
+    ${lib.optionalString stdenv.hostPlatform.isLinux ''
+      cp ${
+        writeText "native-runtime.json" (toJSON {
+          patchelf = "${patchelf}/bin/patchelf";
+          libraryPath = lib.makeLibraryPath runtimeLibraries;
+        })
+      } $out/native-runtime.json
+    ''}
     ${lib.optionalString (supplied != [ ]) "ln -s ${inputBindings}/inputs.json $out/python-inputs.json"}
     ln -s ${wheelhouse} $out/wheelhouse
     mkdir -p $out/replay
@@ -273,6 +289,7 @@ let
     root = ./.;
     fileset = lib.fileset.unions [
       ./offline.py
+      ./native_runtime.py
       ./pip_runner.py
       ./pip_inputs.py
       ./vcs_shim.py
