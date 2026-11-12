@@ -28,11 +28,35 @@ let
         }).inputs.drvPath
         true
     )).success;
+  wheel =
+    abi:
+    import ../nix/lib/wheel-compatible.nix
+      {
+        inherit (pkgs) lib;
+        # Platform behavior is delegated unchanged; isolate ABI combinations here.
+        purifier.wheels = _: _: true;
+      }
+      {
+        pythonVersion = "3.15";
+        pythonAbi = abi;
+        arch = "x86_64";
+        glibcVersion = "2.40";
+      };
 in
 assert builtins.all (entry: pkgs.lib.hasSuffix "-py3-none-any.whl" entry.path) legacy.artifacts;
 assert regular.pythonVersion == free.pythonVersion;
 assert builtins.elem primary regular.pythonABITags;
 assert builtins.elem (primary + "t") free.pythonABITags;
+assert wheel "cp315" "probe-0-cp315-cp315-manylinux_2_17_x86_64.whl";
+assert !(wheel "cp315t" "probe-0-cp315-cp315-manylinux_2_17_x86_64.whl");
+assert wheel "cp315t" "probe-0-cp315-cp315t-manylinux_2_17_x86_64.whl";
+assert !(wheel "cp315" "probe-0-cp315-cp315t-manylinux_2_17_x86_64.whl");
+assert wheel "cp315" "probe-0-cp312-abi3-manylinux_2_17_x86_64.whl";
+assert !(wheel "cp315t" "probe-0-cp312-abi3-manylinux_2_17_x86_64.whl");
+assert wheel "cp315t" "probe-0-cp315-abi3t-manylinux_2_17_x86_64.whl";
+assert !(wheel "cp315" "probe-0-cp315-abi3t-manylinux_2_17_x86_64.whl");
+assert !(wheel "cp315t" "probe-0-cp314-abi3t-manylinux_2_17_x86_64.whl");
+assert wheel "cp315t" "probe-0-py3-none-any.whl";
 assert problems legacy == [ ];
 assert problems abi == [ ];
 assert problems (builtins.removeAttrs abi [ "pythonAbi" ]) != [ ];

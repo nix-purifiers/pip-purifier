@@ -191,9 +191,10 @@ let
   }
   // fetchers;
   fetch = purifier.fetchEntry fetchArgs;
-  compatible = purifier.wheels (
+  compatible = import ./wheel-compatible.nix { inherit lib purifier; } (
     {
       pythonVersion = checked.python;
+      pythonAbi = checked.pythonAbi or ("cp" + builtins.replaceStrings [ "." ] [ "" ] checked.python);
     }
     // (
       if stdenv.hostPlatform.isDarwin then
