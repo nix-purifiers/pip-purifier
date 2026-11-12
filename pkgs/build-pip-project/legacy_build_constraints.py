@@ -54,7 +54,6 @@ def activate(runner):
     from pip._internal.req.req_file import get_file_content
 
     constraints = json.loads(os.environ.get(STATE, '[]'))
-    constraints.extend(os.environ.get('PIP_BUILD_CONSTRAINT', '').split())
     args = sys.argv[1:]
     cleaned = []
     index = 0
@@ -73,13 +72,17 @@ def activate(runner):
         else:
             cleaned.append(arg)
         index += 1
+    global_options, command_args = create_main_parser().parse_args(cleaned)
+    # This configuration belongs only to build-capable commands. Native
+    # --isolated suppresses external configuration, not forwarded tool state.
+    if global_options.version or not command_args or command_args[0] not in ('install', 'wheel', 'download'):
+        return
+    if not global_options.isolated_mode:
+        constraints.extend(os.environ.get('PIP_BUILD_CONSTRAINT', '').split())
     if not constraints:
         return
     constraints = list(dict.fromkeys(value if urlsplit(value).scheme in ('http', 'https', 'file') else str(Path(value).absolute())
                                     for value in constraints))
-    global_options, command_args = create_main_parser().parse_args(cleaned)
-    if not command_args:
-        raise SystemExit('pip-purifier: build constraints require a pip command')
     command = create_command(command_args[0], isolated=global_options.isolated_mode)
     options, _ = command.parse_args(command_args[1:])
     if not getattr(options, 'build_isolation', True):
