@@ -2,7 +2,7 @@
 {
   pkgs,
   sdk ? pkgs.python3.withPackages (ps: [ ps.pip ]),
-  runner ? ../nix/lib/pip_runner.py,
+  runner ? ../pkgs/build-pip-project/pip_runner.py,
 }:
 let
   wheel = pkgs.fetchurl {

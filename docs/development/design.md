@@ -11,7 +11,7 @@ sdists use the proxy too, and their build requirements are recorded.
 
 The lock run then:
 
-1. rewrites the pip arguments and every file they name (`nix/lib/pip_inputs.py`,
+1. rewrites the pip arguments and every file they name (`pkgs/build-pip-project/pip_inputs.py`,
    "lock" mode), so index options point at the proxy;
 2. runs `pip install --report` into a scratch venv, which resolves,
    downloads and builds everything for this system;
@@ -43,7 +43,7 @@ system's resolve evaluates as the lock host does.
 
 `version`, `pip` and `python` identify the lock, and `hash` is the SHA-256
 of the rest of the lockfile as compact JSON with sorted keys. Both the
-command (`lock_hash`) and the Nix library (`nix/lib/read-lock.nix`) compute
+command (`lock_hash`) and the Nix library (`lib-overlays/default/read-lock.nix`) compute
 it, so an edit by hand fails. `args` are the pip install arguments.
 `inputs` maps each file the arguments name (and the `pyproject.toml`,
 `setup.py` and `setup.cfg` of each local project) to its SHA-256; the Nix
@@ -60,12 +60,12 @@ entry shapes of the nix-purifiers/purifier library, except the files that a
 
 The versions that a hashed requirement or a `pylock.toml` pins also go to
 pip as `--build-constraint` (`Rewriter.build_constraints` in
-`nix/lib/pip_inputs.py`), in the lock run and in the offline install, so
+`pkgs/build-pip-project/pip_inputs.py`), in the lock run and in the offline install, so
 the build environments of sdists use the project's versions.
 
 ## The Nix library
 
-`readLock` (`nix/lib/read-lock.nix`) reads the lockfile into the lock shape
+`readLock` (`lib-overlays/default/read-lock.nix`) reads the lockfile into the lock shape
 of the purifier contract: the artifacts as `entries`, each wheel for one
 CPU with its `systems`, the local projects as `outputs`, and the reasons the
 lockfile cannot be used as `problems`. `buildPipProject` passes it to the
@@ -74,7 +74,7 @@ takes this system's downloads from `entriesFor`, of which it keeps the
 wheels that the build's glibc (on macOS, nixpkgs' oldest macOS) and Python
 run. The library's `fetchEntry` and `tree` fetch them with `fetchers`.
 
-## The offline install (`nix/lib/offline.py`)
+## The offline install (`pkgs/build-pip-project/offline.py`)
 
 The Nix build and `pip-purifier prefetch` both rewrite the recorded
 arguments in "offline" mode: index options go away, and each VCS or URL
@@ -92,5 +92,5 @@ recorded commit object, with the revision pip asks for as a tag. A git
 wrapper first on `PATH` drops the `--filter` of pip's `git clone`: a
 partial clone of a shallow repository fetches the shallow commit's parent
 again and again. A Mercurial, Subversion or Bazaar
-repository named in metadata is answered by `nix/lib/vcs_shim.py`, and a URL
+repository named in metadata is answered by `pkgs/build-pip-project/vcs_shim.py`, and a URL
 named in metadata by `mitm-cache replay`.

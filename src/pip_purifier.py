@@ -38,10 +38,10 @@ sys.path.insert(0, NIX_LIB)
 import offline  # noqa: E402
 import pip_inputs  # noqa: E402
 import python_bindings  # noqa: E402
-sys.path.insert(0, os.environ.get("PIP_PURIFIER_PROJECT_INPUTS_TOOLS", str(Path(NIX_LIB).parent / "purifier/tools")))
+sys.path.insert(0, os.environ.get("PIP_PURIFIER_PROJECT_INPUTS_TOOLS", str(Path(NIX_LIB).parents[1] / "purifier/tools")))
 
-# The lock format version. nix/lib/lock-version.nix reads the same.
-with open(os.path.join(NIX_LIB, "lock-version.nix")) as _f:
+# The lock format version. lib-overlays/default/lock-version.nix reads the same.
+with open(os.path.join(NIX_LIB, "../../lib-overlays/default/lock-version.nix")) as _f:
     FORMAT_VERSION = int(re.findall(r"^\d+$", _f.read(), re.M)[0])
 
 LOCKFILE = "pip-purifier.lock.json"
@@ -520,7 +520,7 @@ def hash_inputs(project, inputs, pylock=None):
     return out
 
 
-# The top-level fields of a lockfile. nix/lib/read-lock.nix requires the
+# The top-level fields of a lockfile. lib-overlays/default/read-lock.nix requires the
 # same.
 LOCK_FIELDS = ["version", "hash", "pip", "python", "args", "inputs", "pins", "versions", "outputs", "sources", "artifacts"]
 
@@ -528,7 +528,7 @@ LOCK_FIELDS = ["version", "hash", "pip", "python", "args", "inputs", "pins", "ve
 def lock_hash(lock):
     """The hash a lockfile holds of its own content: the SHA-256, in SRI
     form, of the lockfile without `hash` as compact JSON with sorted keys.
-    Nix computes the same with builtins.toJSON (nix/lib/read-lock.nix)."""
+    Nix computes the same with builtins.toJSON (lib-overlays/default/read-lock.nix)."""
     content = {k: v for k, v in lock.items() if k != "hash"}
     text = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return sri(hashlib.sha256(text.encode()).digest())
@@ -769,7 +769,7 @@ def native_lock(ns):
         artifacts = {}
         sources = {}
         by_name = {normalize(i["metadata"]["name"]): i for i in items}
-        # The files of a pylock.toml, which readLock (nix/lib/read-lock.nix)
+        # The files of a pylock.toml, which readLock (lib-overlays/default/read-lock.nix)
         # reads from the pylock.toml itself; `artifacts` holds the others.
         in_pylock = set()
         for spec in rewriter.specs:
@@ -973,12 +973,12 @@ def update(ns):
 
 
 def nix_build(project, lockfile, attr, out_link=None, pylock=None):
-    """Builds the output `attr` of buildPipProject (nix/lib/cli.nix) for the
+    """Builds the output `attr` of buildPipProject (pkgs/cli/cli.nix) for the
     project, after checking its lockfile."""
     read_lock(project, lockfile, pylock)
     command = [
         "nix-build",
-        os.path.join(NIX_LIB, "cli.nix"),
+        os.path.join(NIX_LIB, "../cli/cli.nix"),
         "--arg",
         "nixpkgs",
         NIXPKGS,

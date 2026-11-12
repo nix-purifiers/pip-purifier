@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# The `pip-purifier` library namespace: `readLock` (nix/lib/read-lock.nix).
+# The `pip-purifier` library namespace: `readLock` (lib-overlays/default/read-lock.nix).
 # A consumer that lists this flake in `projects` holds it as
 # `pip-purifier/default`, and its library then has `lib.pip-purifier`. The
 # builder needs a package set, so it is the package `buildPipProject` that
@@ -10,7 +10,7 @@
 
   overlay = final: prev: {
     pip-purifier = {
-      inherit (import ../../nix/lib/read-lock.nix { lib = final; }) readLock;
+      inherit (import ./read-lock.nix { lib = final; }) readLock;
     };
   };
 

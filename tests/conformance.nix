@@ -4,7 +4,7 @@
 # on the hashed fixture. A bad lockfile is given as `lockData`, so that
 # evaluation reads no generated file. Each check asserts that evaluating
 # the build fails, with builtins.tryEval, and that the message the build
-# gives in `problems` (nix/lib/read-lock.nix) names the problem and the command that
+# gives in `problems` (lib-overlays/default/read-lock.nix) names the problem and the command that
 # fixes it. A failure inside a build is caught with testers.testBuildFailure,
 # whose log the check reads.
 {
@@ -13,7 +13,7 @@
 }:
 let
   inherit (pkgs) lib runCommand;
-  lockCheck = import ../nix/lib/read-lock.nix { inherit lib; };
+  lockCheck = import ../lib-overlays/default/read-lock.nix { inherit lib; };
 
   src = ./fixtures/hashed;
   lock = builtins.fromJSON (builtins.readFile (src + "/pip-purifier.lock.json"));

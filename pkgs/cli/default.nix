@@ -20,7 +20,7 @@
 }:
 let
   # The purifier library at the revision this flake's lock pins. The
-  # package links it, so a root on the package keeps it for nix/lib/cli.nix.
+  # package links it, so a root on the package keeps it for pkgs/cli/cli.nix.
   flakeLock = builtins.fromJSON (builtins.readFile ../../flake.lock);
   purifierSource = builtins.fetchTree flakeLock.nodes.${flakeLock.nodes.root.inputs.purifier}.locked;
 
@@ -38,7 +38,9 @@ stdenvNoCC.mkDerivation {
     root = ../..;
     fileset = lib.fileset.unions [
       ../../src
-      ../../nix/lib
+      ../build-pip-project
+      ./cli.nix
+      ../../lib-overlays/default
     ];
   };
 
@@ -48,7 +50,10 @@ stdenvNoCC.mkDerivation {
     runHook preInstall
     mkdir -p $out/bin $out/share/pip-purifier
     cp src/pip_purifier.py $out/share/pip-purifier/
-    cp -r nix/lib $out/share/pip-purifier/nix-lib
+    mkdir -p $out/share/pip-purifier/pkgs/cli
+    cp -r pkgs/build-pip-project $out/share/pip-purifier/pkgs/
+    cp pkgs/cli/cli.nix $out/share/pip-purifier/pkgs/cli/
+    cp -r lib-overlays $out/share/pip-purifier/
     ln -s ${purifierSource} $out/share/pip-purifier/purifier
     makeWrapper ${python.interpreter} $out/bin/pip-purifier \
       --add-flags "-I $out/share/pip-purifier/pip_purifier.py" \
@@ -64,7 +69,7 @@ stdenvNoCC.mkDerivation {
         ]
       } \
       --set PIP_PURIFIER_PROJECT_INPUTS_TOOLS ${purifierSource}/tools \
-      --set PIP_PURIFIER_NIX_LIB $out/share/pip-purifier/nix-lib \
+      --set PIP_PURIFIER_NIX_LIB $out/share/pip-purifier/pkgs/build-pip-project \
       --set PIP_PURIFIER_PYTHON ${python3.interpreter} \
       --set PIP_PURIFIER_NIXPKGS ${path}
     runHook postInstall
