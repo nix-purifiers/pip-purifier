@@ -16,6 +16,10 @@ set -euo pipefail
 source "$(dirname "$0")/network.sh"
 
 cli=$(nix build --no-link --print-out-paths '.#cli')/bin/pip-purifier
+# Match the fixture/default builder SDK explicitly; the CLI adopts PATH.
+fixture_python=$(nix build --no-link --print-out-paths --impure --expr \
+  "let f = builtins.getFlake \"$(pwd)\"; in f.inputs.nixpkgs.legacyPackages.\${builtins.currentSystem}.python3")
+export PATH="$fixture_python/bin:$PATH"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 

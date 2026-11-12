@@ -24,6 +24,8 @@ esac
 python=$(nix build --no-link --print-out-paths --impure --expr \
   "let f = builtins.getFlake \"$repo\"; pkgs = import f.inputs.nixpkgs { system = \"$system\"; }; in pkgs.$attribute")/bin/python
 "$python" --version
+# Later prefetch operations adopt the explicitly selected test interpreter.
+export PATH="$(dirname "$python"):$PATH"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cp -r "$repo/tests/fixtures/project" "$work/project"
@@ -58,15 +60,16 @@ cat > flake.nix <<NIX
           flake = pip-purifier; system = "$system"; output = "python";
         }
       else pkgs.python3;
-      source = builtins.path { path = ./.; name = "project-source"; filter = p: t: !(builtins.elem (baseNameOf p) [ ".venv" ".pip-purifier" ]); };
-      project = pkgs.pip-purifier.buildPipProject {
-        src = source;
-        python = if "$installer" == "current" then
+      targetPython = if "$installer" == "current" then
           import "\${pip-purifier}/tests/sdk.nix" {
             flake = pip-purifier; system = "$system";
             pythonAttribute = "$attribute"; output = "python";
           }
         else pkgs.$attribute;
+      source = builtins.path { path = ./.; name = "project-source"; filter = p: t: !(builtins.elem (baseNameOf p) [ ".venv" ".pip-purifier" ]); };
+      project = pkgs.pip-purifier.buildPipProject {
+        src = source;
+        python = targetPython;
         checkPhase = "greet";
       };
     in {
@@ -78,6 +81,7 @@ cat > flake.nix <<NIX
       };
       checks.$system.development = import "\${pip-purifier}/tests/development.nix" {
         inherit pkgs project;
+        python = targetPython;
         cli = if "$installer" == "default" then pkgs.pip-purifier.cli else
           import "\${pip-purifier}/tests/sdk.nix" { flake = pip-purifier; system = "$system"; };
         src = source;

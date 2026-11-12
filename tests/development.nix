@@ -6,12 +6,13 @@
   src,
   checkPhase,
   wrongPython ? null,
+  python ? pkgs.python3,
 }:
 pkgs.runCommand "pip-purifier-ordinary-development"
   {
     nativeBuildInputs = [
       cli
-      pkgs.python3
+      python
     ];
   }
   ''
@@ -24,14 +25,14 @@ pkgs.runCommand "pip-purifier-ordinary-development"
       echo 'incomplete offline inputs were accepted' >&2
       exit 1
     fi
-    grep -q 'offline inputs are incomplete' legacy.log
+    grep -q 'offline inputs are incomplete' legacy.log || { cat legacy.log >&2; exit 1; }
     ${pkgs.lib.optionalString (wrongPython != null) ''
       ${wrongPython.interpreter} -m venv --without-pip .venv
       if pip-purifier prefetch --inputs ${project.inputs} >wrong.log 2>&1; then
         echo 'prefetch accepted an existing environment with another interpreter' >&2
         exit 1
       fi
-      grep -q 'target Python version/ABI' wrong.log
+      grep -q 'target Python version/ABI' wrong.log || { cat wrong.log >&2; exit 1; }
       test -x .venv/bin/python
       rm -rf .venv
     ''}

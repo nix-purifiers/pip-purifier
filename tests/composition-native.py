@@ -29,6 +29,8 @@ with tempfile.TemporaryDirectory(prefix='pip-native-composition-') as temporary:
     env = dict(os.environ, PIP_COMPOSITION_FLAKE=snapshot, UV_PYTHON_DOWNLOADS='never')
     tools = Path(subprocess.check_output(['nix', 'build', '--impure', '--print-out-paths',
         '--out-link', str(temporary / 'tools'), '--expr', expression], text=True, env=env).strip())
+    # The producer and downstream fixture explicitly share this target SDK.
+    env['PATH'] = str(tools / 'bin') + os.pathsep + env['PATH']
     project = temporary / 'project'
     source = project / 'src/pip_composed/__init__.py'
     source.parent.mkdir(parents=True)

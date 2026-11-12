@@ -20,6 +20,10 @@ source "$(dirname "$0")/source.sh"
 
 repo=$(source_snapshot)
 cli=$(nix build --no-link --print-out-paths "$repo#cli")/bin/pip-purifier
+# Match the fixture/default builder SDK explicitly; the CLI adopts PATH.
+fixture_python=$(nix build --no-link --print-out-paths --impure --expr \
+  "let f = builtins.getFlake \"$repo\"; in f.inputs.nixpkgs.legacyPackages.\${builtins.currentSystem}.python3")
+export PATH="$fixture_python/bin:$PATH"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
