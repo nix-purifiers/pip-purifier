@@ -357,7 +357,7 @@ class Rewriter:
                 return f"{option} {shlex.quote(self.requirements_file(nested))}"
             if kind == "editable":
                 spec, editable = self.spec(" ".join(tokens[1:]), editable=True)
-                return ("-e " if editable else "") + spec
+                return "-e " + shlex.quote(spec) if editable else spec
             if kind in ("index", "extra-index", "find-links", "trusted-host"):
                 return " ".join(shlex.quote(t) for t in self.index_option(option, tokens[1], base))
             if option == "--no-index":

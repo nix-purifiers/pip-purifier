@@ -3,6 +3,7 @@
 rewriting of pip's inputs in lock and offline modes."""
 
 import os
+import shlex
 import tempfile
 import tomllib
 import unittest
@@ -200,6 +201,13 @@ wheels = [{url = "https://example.org/six.whl", hashes = {sha256 = "aa"}}]
         rewriter = pip_inputs.Rewriter(self.project, out, "offline", local=lambda kind, url, name: "/x", editable=True)
         text = self.read(rewriter.args(["-r", "requirements.txt"])[1])
         self.assertIn(f"-e {self.project}", text)
+
+    def test_editable_vcs_requirement_keeps_named_url_as_one_argument(self):
+        self.write("editable.txt", "-e git+https://example.invalid/probe.git@main#egg=probe\n")
+        rewriter = pip_inputs.Rewriter(self.project, os.path.join(self.tmp.name, "offline"), "offline",
+                                      local=lambda *_args: "/retained/probe", editable=True)
+        line = self.read(rewriter.args(["-r", "editable.txt"])[1]).strip()
+        self.assertEqual(shlex.split(line), ["-e", "probe @ file:///retained/probe"])
 
     def test_command_line_options(self):
         out = os.path.join(self.tmp.name, "lock")
