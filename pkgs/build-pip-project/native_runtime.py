@@ -127,7 +127,9 @@ def repair(inputs, venv):
                 options += ["--add-rpath", ":".join(missing)]
             if not options:
                 continue
-            subprocess.run([settings["patchelf"], *options, str(path)], check=True)
+            # Sorting overlapping LOAD segments can make otherwise valid
+            # executables (including official Node binaries) crash at startup.
+            subprocess.run([settings["patchelf"], "--no-sort", *options, str(path)], check=True)
             changed.add(path.resolve())
     refresh_records(venv, changed)
 

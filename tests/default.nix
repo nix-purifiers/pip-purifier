@@ -27,6 +27,11 @@ let
   # setuptools) and a dependency with platform wheels (PyYAML).
   project = build { src = ./fixtures/project; };
 
+  nativeNode = import ./native-runtime-node.nix {
+    inherit pkgs;
+    environment = project.environment;
+  };
+
   # Native pip understands editable extras; its report must also establish
   # package ownership and track the local project's manifest.
   editableExtras = build { src = ./fixtures/editable-extras; };
@@ -428,4 +433,8 @@ in
 }
 // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   native-runtime = import ./native-runtime.nix { inherit pkgs; };
+}
+// lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+  native-runtime-node = nativeNode;
+  native-runtime-node-fixup = nativeNode.fixup;
 }

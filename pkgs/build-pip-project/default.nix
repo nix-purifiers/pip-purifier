@@ -361,6 +361,14 @@ let
         runHook postBuild
       '';
       dontInstall = true;
+      # Wheels may bundle optimized executables whose layout generic stripping
+      # invalidates. Preserve their upstream sections after runtime repair.
+      dontStrip = true;
+      preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
+        # Nix's standard RPATH shrinking must preserve the executable layout
+        # established by native_runtime.repair, including overlapping segments.
+        patchelf() { ${patchelf}/bin/patchelf --no-sort "$@"; }
+      '';
       postFixup = ''
         ${python.interpreter} -I ${scripts}/native_runtime.py "$out"
       '';

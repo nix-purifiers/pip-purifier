@@ -45,7 +45,15 @@ repair with `LD_LIBRARY_PATH` unset. It also checks preservation of vendor
 It also executes a bundled C++ program with a deliberately missing loader,
 checks that static and foreign-architecture binaries remain unchanged, and
 verifies RECORD refresh after a subsequent file modification. Environment
-builds refresh hashes again after Nix's final strip/shebang fixups.
+builds refresh hashes again after Nix's final shebang fixups.
+
+The x86_64-linux `native-runtime-node` check uses the SHA256-pinned official
+Node 24.22.1 executable. It reproduces a loader crash when patchelf sorts its
+program headers. Repair must preserve their order, support execution of a child
+Node process without `LD_LIBRARY_PATH`, update RECORD and remain idempotent.
+`native-runtime-node-fixup` injects the same binary into a consumer environment
+and executes JavaScript after the actual Nix fixups. Environment fixups preserve
+header order and upstream sections: generic stripping breaks this executable.
 
 The opt-in [HTTPX Python3.13 diagnostic](../../tests/real-world/httpx-python313/README.md)
 retains a pinned real-project failure and a matched raw-pip baseline. Both
