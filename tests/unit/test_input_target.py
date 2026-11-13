@@ -28,6 +28,14 @@ class LocalInputTarget(unittest.TestCase):
             self.assertIn('localInputs', command)
             self.assertFalse(Path(lock).exists())
 
+    def test_relative_environment_is_resolved_before_probe_changes_directory(self):
+        tags = ['cp312-cp312-manylinux_2_17_x86_64']
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(python_repository, 'interpreter_tags', return_value=tags) as probe, \
+             patch.object(pp, 'nix_build', return_value='/store/inputs'):
+            pp.inputs_of(tmp, str(Path(tmp) / 'lock'), target_python='relative-env/bin/python')
+            probe.assert_called_once_with(str(Path('relative-env/bin/python').resolve()))
+
     def test_no_implicit_consumer_fallback(self):
         with self.assertRaises(TypeError):
             pp.inputs_of('/unused', '/unused/lock')

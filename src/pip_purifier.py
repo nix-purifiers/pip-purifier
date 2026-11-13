@@ -1209,6 +1209,7 @@ def inputs_of(project, lockfile, pylock=None, *, target_python):
     """The project's offline inputs, kept alive by a garbage-collector root
     under .pip-purifier/."""
     from python_repository import interpreter_tags
+    target_python = os.path.abspath(shutil.which(target_python) or target_python)
     tags = python_bindings.target_tags(interpreter_tags(target_python))
     return nix_build(project, lockfile, "localInputs", out_link=os.path.join(roots(lockfile), "inputs"),
                      pylock=pylock, python_tags=tags)
