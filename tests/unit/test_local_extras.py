@@ -183,8 +183,8 @@ class LocalExtras(unittest.TestCase):
 
     def test_normal_config_options_and_hash_named_values_retain_native_meaning(self):
         for tail in [' --config-settings="mode=compat"', ' -C "mode=compat"',
-                     ' --config-settings "--hash"', ' --config-settings="key=--hash"',
-                     ' -C--hash', ' --config-settings=mode=compat ; python_version < "0"']:
+                     ' --config-settings "--hash=value"', ' --config-settings="key=--hash"',
+                     ' -C--hash=value', ' --config-settings=mode=compat ; python_version < "0"']:
             line = '-e "./pkg[alpha]"' + tail
             path = self.project / 'config-tail.txt'
             path.write_text(line + '\n')
@@ -198,6 +198,18 @@ class LocalExtras(unittest.TestCase):
                         output = self.project / 'config-rewritten.txt'
                         output.write_text(result + '\n')
                         self.assertEqual(self.parsed_file(output)[0].options, expected)
+
+    def test_invalid_config_value_is_left_for_native_pip_to_reject(self):
+        line = '-e "./pkg[alpha]" --config-settings "--hash"'
+        with self.cwd():
+            for mode, keep in [('lock', True), ('offline', True), ('offline', False)]:
+                rw = self.rewriter(mode, keep)
+                result = rw.requirements_line(line, str(self.project))
+                self.assertTrue(result.endswith(' --config-settings "--hash"'))
+                path = self.project / 'bad-config.txt'
+                path.write_text(result + '\n')
+                with self.assertRaises(Exception):
+                    self.parsed_file(path)
 
     def test_unknown_file_option_reaches_native_pip_unchanged(self):
         tail = ' --not-a-real-pip-option="unchanged value"'
