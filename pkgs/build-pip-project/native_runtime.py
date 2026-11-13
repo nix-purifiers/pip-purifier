@@ -51,6 +51,7 @@ def elf_properties(path):
                         dynamic = (int.from_bytes(program[4:8], byteorder),
                                    int.from_bytes(program[16:20], byteorder), 4)
         flags = 0
+        path_tags = set()
         if dynamic:
             start, length, word = dynamic
             source.seek(start)
@@ -61,10 +62,13 @@ def elf_properties(path):
                 tag = int.from_bytes(entry[:word], byteorder)
                 if tag == 0:
                     break
+                if tag in (15, 29):  # DT_RPATH / DT_RUNPATH, including empty values
+                    path_tags.add(tag)
                 if tag == 0x6FFFFFFB:  # DT_FLAGS_1
                     flags = int.from_bytes(entry[word:], byteorder)
         return {"machine": number(18, 2), "dynamic": 2 in types,
                 "interpreter": 3 in types,
+                "pathKind": "runpath" if 29 in path_tags else "rpath" if 15 in path_tags else None,
                 "staticPie": bool(flags & 0x08000000) and 3 not in types}
 
 
@@ -124,6 +128,9 @@ def repair(inputs, venv):
                                           text=True).strip()
             missing = [p for p in library_path.split(":") if p and p not in old.split(":")]
             if missing:
+                # RUNPATH on a previously pathless child blocks inherited RPATH.
+                if elf["pathKind"] != "runpath":
+                    options += ["--force-rpath"]
                 options += ["--add-rpath", ":".join(missing)]
             if not options:
                 continue
@@ -134,8 +141,27 @@ def repair(inputs, venv):
     refresh_records(venv, changed)
 
 
+def exec_patchelf(tool, linker, arguments):
+    """Preserve legacy path semantics during the standard Nix shrink hook."""
+    options = ["--no-sort"]
+    if "--shrink-rpath" in arguments and arguments:
+        try:
+            elf = elf_properties(Path(arguments[-1]))
+            sdk = elf_properties(Path(linker))
+        except OSError:
+            elf = sdk = None
+        if (elf and sdk and elf["dynamic"] and not elf["staticPie"] and
+                elf["machine"] == sdk["machine"] and elf["pathKind"] == "rpath"):
+            options.append("--force-rpath")
+    # Execute the pinned tool directly, retaining its streams, signals and status.
+    os.execv(tool, [tool, *options, *arguments])
+
+
 if __name__ == "__main__":
     import argparse
+    import sys
+    if len(sys.argv) >= 5 and sys.argv[1] == "--patchelf" and sys.argv[4] == "--":
+        exec_patchelf(sys.argv[2], sys.argv[3], sys.argv[5:])
     parser = argparse.ArgumentParser(description="Refresh installed RECORD hashes after Nix fixups")
     parser.add_argument("venv")
     refresh_records(parser.parse_args().venv)

@@ -455,6 +455,7 @@ in
 }
 // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
   native-runtime = import ./native-runtime.nix { inherit pkgs; };
+  native-runtime-paths = import ./native-runtime-paths.nix { inherit pkgs; };
 }
 // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
   native-runtime-node = nativeNode;

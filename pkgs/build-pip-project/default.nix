@@ -261,7 +261,10 @@ let
       preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
         # Nix's standard RPATH shrinking must preserve the executable layout
         # established by native_runtime.repair, including overlapping segments.
-        patchelf() { ${patchelf}/bin/patchelf --no-sort "$@"; }
+        patchelf() {
+          ${python.interpreter} -I ${scripts}/native_runtime.py --patchelf \
+            ${patchelf}/bin/patchelf ${stdenv.cc.bintools.dynamicLinker} -- "$@"
+        }
       '';
       postFixup = ''
         ${python.interpreter} -I ${scripts}/native_runtime.py "$out"
