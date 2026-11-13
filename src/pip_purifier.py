@@ -1163,7 +1163,7 @@ def update(ns):
 # Nix.
 
 
-def nix_build(project, lockfile, attr, out_link=None, pylock=None):
+def nix_build(project, lockfile, attr, out_link=None, pylock=None, python_tags=None):
     """Builds the output `attr` of buildPipProject (pkgs/cli/cli.nix) for the
     project, after checking its lockfile."""
     read_lock(project, lockfile, pylock)
@@ -1186,6 +1186,8 @@ def nix_build(project, lockfile, attr, out_link=None, pylock=None):
         "attr",
         attr,
     ]
+    if python_tags is not None:
+        command += ["--argstr", "pythonTags", json.dumps(python_tags)]
     command += ["--out-link", out_link] if out_link else ["--no-out-link"]
     result = subprocess.run(command, stdout=subprocess.PIPE, text=True, check=False)
     if result.returncode != 0:
@@ -1203,10 +1205,13 @@ def roots(lockfile):
     return root
 
 
-def inputs_of(project, lockfile, pylock=None):
+def inputs_of(project, lockfile, pylock=None, *, target_python):
     """The project's offline inputs, kept alive by a garbage-collector root
     under .pip-purifier/."""
-    return nix_build(project, lockfile, "localInputs", out_link=os.path.join(roots(lockfile), "inputs"), pylock=pylock)
+    from python_repository import interpreter_tags
+    tags = python_bindings.target_tags(interpreter_tags(target_python))
+    return nix_build(project, lockfile, "localInputs", out_link=os.path.join(roots(lockfile), "inputs"),
+                     pylock=pylock, python_tags=tags)
 
 
 def prefetch_command(ns):
@@ -1224,7 +1229,7 @@ def prefetch_command(ns):
     if ns.inputs:
         inputs = ns.inputs
     else:
-        inputs = inputs_of(project, lockfile, pylock)
+        inputs = inputs_of(project, lockfile, pylock, target_python=target_python)
         # The command package holds the installer SDK, nixpkgs and purifier
         # library. The rooted inputs hold the locked artifacts.
         package = os.path.dirname(os.path.dirname(os.path.dirname(NIX_LIB)))
@@ -1269,7 +1274,7 @@ def pip(ns):
         target = os.path.join(target, "bin", "python")
     python_identity.validate(target, locked["python"], locked.get("pythonAbi"))
     activate_installer(target, locked=locked, lockfile=lockfile)
-    inputs = inputs_of(project, lockfile, tool_lockfile_path(ns))
+    inputs = inputs_of(project, lockfile, tool_lockfile_path(ns), target_python=target)
     env = offline.environment(inputs)
     env["PIP_CONSTRAINT"] = os.path.join(inputs, "pins.txt")
     offline.run_pip(PIP + pip_args, project, installer_environment(env), stdout=True)

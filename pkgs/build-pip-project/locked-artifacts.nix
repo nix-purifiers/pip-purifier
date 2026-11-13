@@ -23,6 +23,7 @@
   fetchers ? { },
   projectDependencies ? null,
   python ? null,
+  pythonTags ? null,
   runtimeLibraries ? [ ],
 }:
 let
@@ -52,13 +53,30 @@ let
     )
   );
   inputBindings =
+    assert !(python != null && pythonTags != null);
     runCommand "pip-python-bindings"
       {
         nativeBuildInputs = [ (python3.withPackages (ps: [ ps.packaging ])) ];
       }
       ''
+        ${lib.optionalString (python != null) ''
+          ${python3.interpreter} -I ${./python_identity.py} \
+            ${lib.escapeShellArg python.interpreter} \
+            ${lib.escapeShellArg checked.python} \
+            ${lib.escapeShellArg (
+              checked.pythonAbi or ("cp" + builtins.replaceStrings [ "." ] [ "" ] checked.python)
+            )}
+        ''}
         python ${./python_bindings.py} --tools ${purifier.projectInputsTool} \
-          --views ${inputViews} --old-repositories ${writeText "old-repositories.json" "[]"} --destination "$out"
+          --views ${inputViews} --old-repositories ${writeText "old-repositories.json" "[]"} --destination "$out" \
+          ${
+            if python != null then
+              "--python " + lib.escapeShellArg python.interpreter
+            else if pythonTags != null then
+              "--tags " + toString (writeText "consumer-python-tags.json" (toJSON pythonTags))
+            else
+              ""
+          }
       '';
 
   fetchArgs = {

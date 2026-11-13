@@ -14,6 +14,7 @@
   # the project's own.
   pylock,
   attr,
+  pythonTags ? "",
 }:
 let
   pkgs = import nixpkgs { };
@@ -68,6 +69,7 @@ let
   );
   localInputs = (pkgs.callPackage ../build-pip-project/locked-artifacts.nix { inherit purifier; }) {
     checked = lock;
+    pythonTags = if pythonTags == "" then null else builtins.fromJSON pythonTags;
     read = readLock (
       {
         src = source root;
