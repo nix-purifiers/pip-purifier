@@ -764,6 +764,37 @@ def source_sdist(directory, destination, python, env, constraints, settings, iso
         return builder.build("sdist", destination, config_settings=settings)
 
 
+def distribution_filename(destination, artifact, kind):
+    """Require a direct distribution file owned by this build destination."""
+    destination = os.path.abspath(destination)
+    artifact = os.path.abspath(os.fspath(artifact))
+    root = os.path.realpath(destination)
+    try:
+        contained = os.path.commonpath((root, os.path.realpath(artifact))) == root
+    except ValueError:
+        contained = False
+    if (os.path.dirname(artifact) != destination or not contained or
+            not os.path.isfile(artifact)):
+        raise SystemExit(f"pip-purifier: {kind} backend did not produce an owned distribution file: {artifact}")
+    return os.path.basename(artifact)
+
+
+def source_distributions(directory, temporary, python, env, project, flags, constraints, settings, isolated):
+    """Keep each local project's wheel and sdist in an independent namespace."""
+    with tempfile.TemporaryDirectory(prefix="dist-", dir=temporary) as destination:
+        run_pip(["--python", python, "wheel", "--no-deps", "--wheel-dir", destination,
+                 *flags, directory], env, project)
+        wheels = [name for name in os.listdir(destination) if name.endswith(".whl")
+                  and os.path.isfile(os.path.join(destination, name))]
+        if len(wheels) != 1:
+            raise SystemExit("pip-purifier: wheel build did not produce exactly one wheel")
+        wheel = os.path.join(destination, wheels[0])
+        sdist = source_sdist(directory, destination, python, env, constraints, settings, isolated)
+        # Check both after the backend hook, which may have changed its output directory.
+        return (distribution_filename(destination, wheel, "wheel"),
+                distribution_filename(destination, sdist, "sdist"))
+
+
 def vcs_report_items(specs, items):
     """Recover editable Git identity from pip's reported local checkout.
 
@@ -938,12 +969,9 @@ def native_lock(ns):
             directory = os.path.join(project, rel)
             if rel.startswith("..") or not any(os.path.exists(os.path.join(directory, n)) for n in ("pyproject.toml", "setup.py")):
                 continue
-            dist = os.path.join(tmp, "dist", rel.replace(os.sep, "_"))
-            run_pip(["--python", os.path.join(venv, "bin", "python"), "wheel", "--no-deps", "--wheel-dir", dist, *build_flags, directory], env, project)
-            source_sdist(directory, dist, os.path.join(venv, "bin", "python"), env, build_constraints, config_settings, build_isolated)
-            names = os.listdir(dist)
-            wheel = next(n for n in names if n.endswith(".whl"))
-            sdist = next(n for n in names if not n.endswith(".whl"))
+            wheel, sdist = source_distributions(
+                directory, tmp, os.path.join(venv, "bin", "python"), env, project,
+                build_flags, build_constraints, config_settings, build_isolated)
             name, version = dist_name_version(wheel)
             wheels = {}
             for system in dict.fromkeys([*DEFAULT_SYSTEMS, *systems, here]):
