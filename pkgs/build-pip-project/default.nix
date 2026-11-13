@@ -267,6 +267,8 @@ let
       # Wheels may bundle optimized executables whose layout generic stripping
       # invalidates. Preserve their upstream sections after runtime repair.
       dontStrip = true;
+      # Manpage compression renames wheel-owned files and invalidates RECORD.
+      dontGzipMan = true;
       preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
         # Nix's standard RPATH shrinking must preserve the executable layout
         # established by native_runtime.repair, including overlapping segments.

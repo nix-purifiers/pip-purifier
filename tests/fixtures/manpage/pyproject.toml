@@ -1,0 +1,8 @@
+[build-system]
+requires = []
+build-backend = "_backend"
+backend-path = ["."]
+
+[project]
+name = "manpage-probe"
+version = "1.0"

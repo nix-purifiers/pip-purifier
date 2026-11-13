@@ -448,6 +448,10 @@ in
     inherit pkgs;
     buildPipProject = build;
   };
+  wheel-data = import ./wheel-data.nix {
+    inherit pkgs;
+    buildPipProject = build;
+  };
 }
 // import ./conformance.nix {
   inherit pkgs;

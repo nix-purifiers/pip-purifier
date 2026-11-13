@@ -1,0 +1,40 @@
+{
+  "args": [
+    "."
+  ],
+  "artifacts": [],
+  "hash": "sha256-DnvDjN1mdZdCmB8UgjOEimQP56c2Loh3p/dDbLfY8k8=",
+  "inputs": {
+    "pyproject.toml": "529bcc14a3a41d690d7fd7c806115d839fa2901c310779168bb22b6f15f1d96c"
+  },
+  "outputs": {
+    "packages": {
+      "manpage-probe": {
+        "path": ".",
+        "sdist": "manpage_probe-1.0.tar.gz",
+        "version": "1.0",
+        "wheels": {
+          "aarch64-darwin": "manpage_probe-1.0-py3-none-any.whl",
+          "aarch64-linux": "manpage_probe-1.0-py3-none-any.whl",
+          "x86_64-linux": "manpage_probe-1.0-py3-none-any.whl"
+        }
+      }
+    },
+    "programs": []
+  },
+  "pins": {
+    "aarch64-darwin": [],
+    "aarch64-linux": [],
+    "x86_64-linux": []
+  },
+  "pip": "26.1.2",
+  "python": "3.14",
+  "replays": [],
+  "repositories": [],
+  "shims": [],
+  "sources": {},
+  "version": 4,
+  "versions": {
+    ".": "1.0"
+  }
+}
