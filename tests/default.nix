@@ -425,7 +425,7 @@ in
         export PIP_PURIFIER_NIX_LIB=${../.}/pkgs/build-pip-project
         export PIP_PURIFIER_PYTHON=${pkgs.python3.interpreter}
         export PIP_PURIFIER_NIXPKGS=${pkgs.path}
-        export PYTHONPATH=${../pkgs/build-pip-project}:${../src}:${purifier.projectInputsTool}
+        export PYTHONPATH=${../pkgs/build-pip-project}:${../src}:${cli}/share/pip-purifier/purifier/tools
         python -m unittest discover -s ${./unit} -v
         mkdir -p $out
         cp network.json $out/network.json
