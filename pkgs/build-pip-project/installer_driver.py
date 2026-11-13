@@ -48,7 +48,10 @@ def select(target, expected=None, required=(), previous=None):
         if previous and any(candidate[key] != previous[key] for key in ('version', 'sha256')):
             continue
         environment = {'PIP_PURIFIER_PIP_PATH': candidate['path'],
-                       'PIP_PURIFIER_DRIVER_SHA256': candidate['sha256']}
+                       'PIP_PURIFIER_DRIVER_SHA256': candidate['sha256'],
+                       # Capture and local commands never adopt a pure-build
+                       # repair command inherited from an enclosing process.
+                       'PIP_PURIFIER_NATIVE_REPAIR': ''}
         probe = subprocess.run([str(target), '-I', runner, '--purifier-probe'],
             env=dict(os.environ, **environment), capture_output=True, text=True)
         if probe.returncode:

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 import json
+import os
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -18,11 +19,14 @@ class Selection(unittest.TestCase):
         delegated = SimpleNamespace(returncode=0, stderr='', stdout='pip 25.0.1 from /compatible (python 3.8)\n')
         with patch.object(driver, 'candidates', self.candidates), patch.object(
                 driver.subprocess, 'check_output', return_value='3.8.9\n'), patch.object(
-                driver.subprocess, 'run', side_effect=[probe, delegated]) as run:
+                driver.subprocess, 'run', side_effect=[probe, delegated]) as run, patch.dict(
+                os.environ, {'PIP_PURIFIER_NATIVE_REPAIR': 'must-not-reach-local-tools'}):
             selected = driver.select('/existing/python', required=['report'])
             self.assertEqual(selected['identity']['version'], '25.0.1')
             self.assertEqual(selected['command'][0], '/existing/python')
-            self.assertEqual(selected['environment'], {'PIP_PURIFIER_PIP_PATH': '/compatible', 'PIP_PURIFIER_DRIVER_SHA256': 'compatible'})
+            self.assertEqual(selected['environment'], {'PIP_PURIFIER_PIP_PATH': '/compatible', 'PIP_PURIFIER_DRIVER_SHA256': 'compatible',
+                                                       'PIP_PURIFIER_NATIVE_REPAIR': ''})
+            self.assertTrue(all(call.kwargs['env']['PIP_PURIFIER_NATIVE_REPAIR'] == '' for call in run.call_args_list))
             self.assertIn('--python', run.call_args_list[1].args[0])
 
     def test_missing_capability_refuses_before_delegation(self):
