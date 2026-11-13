@@ -25,6 +25,7 @@ with tempfile.TemporaryDirectory(prefix='pip-native-composition-') as temporary:
       mkdir -p "$out/bin"
       ln -s ${p.uv}/bin/uv "$out/bin/uv"
       ln -s ${p.python3.interpreter} "$out/bin/python"
+      ln -s ${p.python3.interpreter} "$out/bin/python3"
     '' '''
     env = dict(os.environ, PIP_COMPOSITION_FLAKE=snapshot, UV_PYTHON_DOWNLOADS='never')
     tools = Path(subprocess.check_output(['nix', 'build', '--impure', '--print-out-paths',
