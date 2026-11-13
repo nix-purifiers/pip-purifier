@@ -185,6 +185,8 @@ let
       ./native_runtime.py
       ./python_identity.py
       ./pip_runner.py
+      ./isolated_native.py
+      ./build_sdist.py
       ./legacy_build_constraints.py
       ./pip_inputs.py
       ./vcs_shim.py
@@ -220,6 +222,13 @@ let
   '';
 
   offlineEnv = {
+    PIP_PURIFIER_NATIVE_REPAIR = builtins.toJSON [
+      "${python3.interpreter}"
+      "-I"
+      "${scripts}/native_runtime.py"
+      "--repair"
+      "${inputs}"
+    ];
     PIP_NO_INDEX = "1";
     PIP_FIND_LINKS = "${inputs}/wheelhouse";
     PIP_CONFIG_FILE = "/dev/null";
@@ -302,8 +311,8 @@ let
             runHook preBuild
             ${unpack}
             ${pip.interpreter} ${scripts}/offline.py tag ${escapeShellArg package.path} ${escapeShellArg package.version}
-            ${pip.interpreter} -m pip wheel --no-deps --wheel-dir $out ${escapeShellArg package.path}
-            ${pip.interpreter} -m build --sdist --outdir $out ${escapeShellArg package.path}
+            ${pip.interpreter} ${scripts}/pip_runner.py wheel --no-deps --wheel-dir $out ${escapeShellArg package.path}
+            ${pip.interpreter} ${scripts}/build_sdist.py ${pip.interpreter} ${escapeShellArg package.path} $out
             ${pip.interpreter} ${scripts}/offline.py normalize-sdist $out/${escapeShellArg package.sdist}
             for f in ${escapeShellArg wheel} ${escapeShellArg package.sdist}; do
               if [ ! -e "$out/$f" ]; then

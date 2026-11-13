@@ -162,6 +162,9 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) >= 5 and sys.argv[1] == "--patchelf" and sys.argv[4] == "--":
         exec_patchelf(sys.argv[2], sys.argv[3], sys.argv[5:])
+    if len(sys.argv) == 4 and sys.argv[1] == "--repair":
+        repair(sys.argv[2], sys.argv[3])
+        sys.exit(0)
     parser = argparse.ArgumentParser(description="Refresh installed RECORD hashes after Nix fixups")
     parser.add_argument("venv")
     refresh_records(parser.parse_args().venv)

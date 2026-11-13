@@ -26,7 +26,7 @@ from pip._internal.cli import main_parser
 from pip._internal.cli.main import main
 
 # Keep the adapter when native pip delegates --python to a virtualenv.
-# Build-isolation subprocesses retain pip's original entry point instead.
+# Pure native repair also retains this entry in build-isolation subprocesses.
 os.environ['PIP_PURIFIER_PIP_PATH'] = str(Path(pip.__file__).parent.parent)
 main_parser.get_runnable_pip = lambda: str(Path(__file__).resolve())
 
@@ -81,6 +81,10 @@ if sys.argv[1:] == ['--purifier-probe']:
 
 if constraint_adapter:
     legacy_build_constraints.activate(Path(__file__).resolve())
+
+if os.environ.get('PIP_PURIFIER_NATIVE_REPAIR'):
+    import isolated_native
+    isolated_native.activate(Path(__file__).resolve())
 
 bindings = os.environ.get('PIP_PURIFIER_BINDINGS')
 if bindings:

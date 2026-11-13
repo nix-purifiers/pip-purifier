@@ -286,6 +286,11 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None, repair_
         ]
         env = environment(inputs)
         env.update(installer_env or {})
+        # This private command is supplied only by the pure Nix builder. Local
+        # adoption must discard it even if the caller inherited tool state.
+        env.pop("PIP_PURIFIER_NATIVE_REPAIR", None)
+        if repair_native and os.environ.get("PIP_PURIFIER_NATIVE_REPAIR"):
+            env["PIP_PURIFIER_NATIVE_REPAIR"] = os.environ["PIP_PURIFIER_NATIVE_REPAIR"]
         if os.environ.get("PIP_PURIFIER_EXPORT_WHEELS"):
             env["PIP_PURIFIER_EXPORT_WHEELS"] = os.environ["PIP_PURIFIER_EXPORT_WHEELS"]
         serve_repositories(inputs, tmp, env)

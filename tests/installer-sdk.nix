@@ -8,6 +8,7 @@
       fileset = pkgs.lib.fileset.unions [
         ../pkgs/build-pip-project/pip_runner.py
         ../pkgs/build-pip-project/legacy_build_constraints.py
+        ../pkgs/build-pip-project/isolated_native.py
       ];
     }
   }/pip_runner.py",

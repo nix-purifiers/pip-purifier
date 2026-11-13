@@ -35,12 +35,14 @@ class EditableSourceLifetime(unittest.TestCase):
                 (inputs / name).write_text(json.dumps(value))
             destinations = []
             def consume(command, *_args):
+                self.assertNotIn("PIP_PURIFIER_NATIVE_REPAIR", _args[-1])
                 target = command[-1].split(" @ ", 1)[-1]
                 path = Path(urllib.parse.unquote(urllib.parse.urlsplit(target).path))
                 self.assertTrue((path / "module.py").exists())
                 destinations.append(path)
             def install():
-                with patch.object(offline, "run_pip", side_effect=consume):
+                with patch.object(offline, "run_pip", side_effect=consume), \
+                        patch.dict(os.environ, {"PIP_PURIFIER_NATIVE_REPAIR": "must-not-reach-local-pip"}):
                     offline.install(["pip"], str(root), str(inputs), str(root / "venv"), editable, repair_native=False)
             install()
             destination = destinations[-1]
