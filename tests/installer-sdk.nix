@@ -2,7 +2,16 @@
 {
   pkgs,
   sdk ? pkgs.python3.withPackages (ps: [ ps.pip ]),
-  runner ? ../pkgs/build-pip-project/pip_runner.py,
+  runner ? "${
+    pkgs.lib.fileset.toSource {
+      root = ../pkgs/build-pip-project;
+      fileset = pkgs.lib.fileset.unions [
+        ../pkgs/build-pip-project/pip_runner.py
+        ../pkgs/build-pip-project/legacy_build_constraints.py
+        ../pkgs/build-pip-project/isolated_native.py
+      ];
+    }
+  }/pip_runner.py",
 }:
 let
   wheel = pkgs.fetchurl {

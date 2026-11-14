@@ -14,6 +14,7 @@
   # the project's own.
   pylock,
   attr,
+  pythonTags ? "",
 }:
 let
   pkgs = import nixpkgs { };
@@ -55,22 +56,57 @@ let
   purifier = import ../../purifier/nix/lib { inherit lib; };
 
   inherit (import ../../lib-overlays/default/read-lock.nix { inherit lib; }) readLock;
-  project = pkgs.callPackage ../build-pip-project/default.nix { inherit purifier readLock; } (
-    {
-      src = source root;
-      lockFile = lockPath;
-      lockData = lock;
-      python =
-        pkgs.${"python" + builtins.replaceStrings [ "." ] [ "" ] lock.python}
-          or (throw "pip-purifier: nixpkgs has no Python ${lock.python}");
-      inherit pathSources;
-    }
-    // lib.optionalAttrs (pylock != "") {
-      pylock = /. + pylock;
-    }
+  validated = purifier.checkLock (
+    readLock (
+      {
+        src = source root;
+        lockFile = lockPath;
+        lockData = lock;
+        inherit pathSources;
+      }
+      // lib.optionalAttrs (pylock != "") { pylock = /. + pylock; }
+    )
+  );
+  localInputs = (pkgs.callPackage ../build-pip-project/locked-artifacts.nix { inherit purifier; }) {
+    checked = lock;
+    pythonTags = if pythonTags == "" then null else builtins.fromJSON pythonTags;
+    read = readLock (
+      {
+        src = source root;
+        lockFile = lockPath;
+        lockData = lock;
+        inherit pathSources;
+      }
+      // lib.optionalAttrs (pylock != "") { pylock = /. + pylock; }
+    );
+    lock = validated;
+  };
+  project = builtins.seq validated (
+    pkgs.callPackage ../build-pip-project/default.nix { inherit purifier readLock; } (
+      {
+        src = source root;
+        lockFile = lockPath;
+        lockData = lock;
+        python =
+          pkgs.${
+            "python"
+            + builtins.replaceStrings [ "." ] [ "" ] lock.python
+            + lib.optionalString (lib.hasSuffix "t" (lock.pythonAbi or "")) "FreeThreading"
+          }
+            or (throw "pip-purifier: nixpkgs has no Python ${lock.python} with ABI ${lock.pythonAbi or "regular"}");
+        inherit pathSources;
+      }
+      // lib.optionalAttrs (pylock != "") {
+        pylock = /. + pylock;
+      }
+    )
   );
 in
-if lock.projectInputs or [ ] != [ ] && (attr == "release" || lib.hasPrefix "packages." attr) then
+if attr == "localInputs" then
+  builtins.seq validated localInputs.inputs
+else if
+  lock.projectInputs or [ ] != [ ] && (attr == "release" || lib.hasPrefix "packages." attr)
+then
   (
     if attr == "release" then
       project

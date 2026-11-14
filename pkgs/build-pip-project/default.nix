@@ -43,6 +43,8 @@
   writeText,
   symlinkJoin,
   python3,
+  patchelf,
+  zlib,
   # The fetchers of the locked downloads, and the tools that unpack
   # archives and rebuild .git, for the purifier library's fetchEntry.
   fetchurl,
@@ -83,6 +85,12 @@
   # a C library.
   nativeBuildInputs ? [ ],
   buildInputs ? [ ],
+  # Shared libraries required by binary wheels on Linux. Include the C++
+  # runtime and zlib by default; additional libraries remain explicit inputs.
+  runtimeLibraries ? lib.optionals stdenv.hostPlatform.isLinux [
+    stdenv.cc.cc.lib
+    zlib
+  ],
   # Native commands required only by the project's tests.
   nativeCheckInputs ? [ ],
   # A command that tests the project, run in a copy of the source with the
@@ -126,154 +134,60 @@ let
       throw "pip-purifier: ${file} has no lock for ${system}; it covers ${toString (attrNames read.lockfile.pins)}. Run `pip-purifier lock`."
     else if python.pythonVersion != read.lockfile.python then
       throw "pip-purifier: ${file} was made for Python ${read.lockfile.python}, and this build uses Python ${python.pythonVersion}. Pass a `python` of version ${read.lockfile.python}, or run `pip-purifier lock --python` with this one."
+    else if
+      python ? pythonABITags
+      && !(lib.elem (read.lockfile.pythonAbi
+        or ("cp" + builtins.replaceStrings [ "." ] [ "" ] read.lockfile.python)
+      ) (python.pythonABITags or [ ]))
+    then
+      throw "pip-purifier: ${file} has a Python ABI mismatch with this SDK. Pass a matching `python`, or run `pip-purifier lock --python` with this one."
     else
       read.lockfile
   );
 
-  inputRecords = checked.projectInputs or [ ];
-  dependencies =
-    if projectDependencies == null then
-      purifier.lockedProjectInputs {
-        inputs = inputRecords;
-        inherit system;
-      }
-    else
-      projectDependencies;
-  supplied = purifier.projectInputs {
-    inherit dependencies;
-    formats = [ "python" ];
-  };
-  inputViews = writeText "pip-python-views.json" (
-    toJSON (
-      map (input: {
-        repository = toString input.repository;
-        catalog = input.repository.catalog;
-      }) supplied
-    )
-  );
-  inputBindings =
-    runCommand "pip-python-bindings"
+  materialized =
+    (import ./locked-artifacts.nix {
+      inherit
+        lib
+        stdenv
+        runCommand
+        writeText
+        fetchurl
+        fetchgit
+        fetchhg
+        fetchsvn
+        fetchbzr
+        unzip
+        zstd
+        python3
+        patchelf
+        purifier
+        ;
+    })
       {
-        nativeBuildInputs = [ (python.withPackages (ps: [ ps.packaging ])) ];
-      }
-      ''
-        python ${./python_bindings.py} --tools ${purifier.projectInputsTool} \
-          --views ${inputViews} --old-repositories ${writeText "old-repositories.json" "[]"} --destination "$out"
-      '';
-
-  fetchArgs = {
-    inherit
-      fetchurl
-      fetchgit
-      fetchhg
-      fetchsvn
-      fetchbzr
-      runCommand
-      unzip
-      zstd
-      python3
-      writeText
-      ;
-  }
-  // fetchers;
-  fetch = purifier.fetchEntry fetchArgs;
-  compatible = purifier.wheels (
-    {
-      pythonVersion = checked.python;
-    }
-    // (
-      if stdenv.hostPlatform.isDarwin then
-        {
-          # macOS wheel tags name the CPU arm64, and the oldest macOS that a
-          # wheel runs on, which is at most nixpkgs' darwinMinVersion.
-          arch = "arm64";
-          macosVersion = stdenv.hostPlatform.darwinMinVersion;
-        }
-      else
-        {
-          inherit arch;
-          glibcVersion = lib.versions.majorMinor (lib.getVersion stdenv.cc.libc);
-        }
-    )
-  );
-
-  isFile = entry: entry ? url;
-  fileName = entry: baseNameOf entry.path;
-  # The entries of this system, of which the build keeps the wheels that
-  # install here, and every sdist, archive and checkout.
-  files = filter (
-    entry: isFile entry && (!(hasSuffix ".whl" entry.path) || compatible (fileName entry))
-  ) (builtins.seq checked (purifier.entriesFor system read));
-  byPath = lib.listToAttrs (
-    map (entry: {
-      name = entry.path;
-      value = entry;
-    }) lock.entries
-  );
-
-  # Each VCS or URL requirement, as written, to its local copy: a checkout
-  # in the store, or a file of the wheelhouse (relative to `inputs`).
-  sources = lib.mapAttrs (
-    _: path:
-    let
-      entry = byPath.${path};
-    in
-    if isFile entry then "wheelhouse/${fileName entry}" else "${fetch entry}"
-  ) checked.sources;
-
-  # The path at which `mitm-cache replay` looks up a URL: "https/" or
-  # "http/", then the host and path, without the query.
-  replayPath =
-    url:
-    let
-      m = builtins.match "(https?)://([^?#]*).*" url;
-    in
-    "${builtins.elemAt m 0}/${builtins.elemAt m 1}";
-
-  # Each git repository that another package names as a source, with a
-  # clone of it in the store: the purifier library rebuilds its .git from
-  # the recorded commit object.
-  repositories = map (repository: repository // { path = "${fetch byPath.${repository.path}}"; }) (
-    checked.repositories or [ ]
-  );
-
-  # The wheels that install here and every sdist and archive, by file name.
-  wheelhouse = purifier.tree (
-    fetchArgs
-    // {
-      name = "pip-purifier-wheelhouse";
-      entries = files;
-    }
-  );
-
-  # Each Mercurial, Subversion or Bazaar repository that another package
-  # names as a source, with its locked checkout, for vcs_shim.py.
-  shims = map (shim: shim // { path = "${fetch byPath.${shim.path}}"; }) (checked.shims or [ ]);
-
-  inputs = runCommand "pip-purifier-inputs" { } ''
-    mkdir -p $out
-    ln -s ${python} $out/python
-    ${lib.optionalString (supplied != [ ]) "ln -s ${inputBindings}/inputs.json $out/python-inputs.json"}
-    ln -s ${wheelhouse} $out/wheelhouse
-    mkdir -p $out/replay
-    ${concatMapStrings (replay: ''
-      mkdir -p "$(dirname $out/replay/${escapeShellArg (replayPath replay.url)})"
-      ln -s ${fetch byPath.${replay.path}} $out/replay/${escapeShellArg (replayPath replay.url)}
-    '') (checked.replays or [ ])}
-    cp ${writeText "sources.json" (toJSON sources)} $out/sources.json
-    cp ${writeText "repositories.json" (toJSON repositories)} $out/repositories.json
-    cp ${writeText "shims.json" (toJSON shims)} $out/shims.json
-    cp ${writeText "versions.json" (toJSON checked.versions)} $out/versions.json
-    cp ${writeText "args.json" (toJSON checked.args)} $out/args.json
-    cp ${writeText "pins.txt" (lib.concatLines checked.pins.${system})} $out/pins.txt
-  '';
+        inherit
+          checked
+          read
+          lock
+          fetchers
+          projectDependencies
+          python
+          runtimeLibraries
+          ;
+      };
+  inherit (materialized) inputs dependencies;
 
   # The offline installer, with the module that rewrites pip's inputs.
   scripts = lib.fileset.toSource {
     root = ./.;
     fileset = lib.fileset.unions [
       ./offline.py
+      ./native_runtime.py
+      ./python_identity.py
       ./pip_runner.py
+      ./isolated_native.py
+      ./build_sdist.py
+      ./legacy_build_constraints.py
       ./pip_inputs.py
       ./vcs_shim.py
     ];
@@ -308,6 +222,13 @@ let
   '';
 
   offlineEnv = {
+    PIP_PURIFIER_NATIVE_REPAIR = builtins.toJSON [
+      "${python3.interpreter}"
+      "-I"
+      "${scripts}/native_runtime.py"
+      "--repair"
+      "${inputs}"
+    ];
     PIP_NO_INDEX = "1";
     PIP_FIND_LINKS = "${inputs}/wheelhouse";
     PIP_CONFIG_FILE = "/dev/null";
@@ -343,6 +264,22 @@ let
         runHook postBuild
       '';
       dontInstall = true;
+      # Wheels may bundle optimized executables whose layout generic stripping
+      # invalidates. Preserve their upstream sections after runtime repair.
+      dontStrip = true;
+      # Manpage compression renames wheel-owned files and invalidates RECORD.
+      dontGzipMan = true;
+      preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
+        # Nix's standard RPATH shrinking must preserve the executable layout
+        # established by native_runtime.repair, including overlapping segments.
+        patchelf() {
+          ${python.interpreter} -I ${scripts}/native_runtime.py --patchelf \
+            ${patchelf}/bin/patchelf ${stdenv.cc.bintools.dynamicLinker} -- "$@"
+        }
+      '';
+      postFixup = ''
+        ${python.interpreter} -I ${scripts}/native_runtime.py "$out"
+      '';
       passthru = {
         inherit inputs;
       };
@@ -376,8 +313,8 @@ let
             runHook preBuild
             ${unpack}
             ${pip.interpreter} ${scripts}/offline.py tag ${escapeShellArg package.path} ${escapeShellArg package.version}
-            ${pip.interpreter} -m pip wheel --no-deps --wheel-dir $out ${escapeShellArg package.path}
-            ${pip.interpreter} -m build --sdist --outdir $out ${escapeShellArg package.path}
+            ${pip.interpreter} ${scripts}/pip_runner.py wheel --no-deps --wheel-dir $out ${escapeShellArg package.path}
+            ${pip.interpreter} ${scripts}/build_sdist.py ${pip.interpreter} ${escapeShellArg package.path} $out
             ${pip.interpreter} ${scripts}/offline.py normalize-sdist $out/${escapeShellArg package.sdist}
             for f in ${escapeShellArg wheel} ${escapeShellArg package.sdist}; do
               if [ ! -e "$out/$f" ]; then

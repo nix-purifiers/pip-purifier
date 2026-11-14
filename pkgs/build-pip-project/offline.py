@@ -34,6 +34,7 @@ version, as they did from the real repository.
 
 import argparse
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -49,6 +50,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pip_inputs
+import native_runtime
+import python_identity
 
 
 def environment(inputs):
@@ -219,10 +222,11 @@ def load(inputs, name):
         return json.load(f)
 
 
-def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
+def install(pip, project, inputs, venv, editable, extra=(), pylock=None, repair_native=True, installer_env=None):
     """Installs the project's inputs into the virtual environment `venv`
     with `pip`, a command that runs pip. `editable` keeps editable installs
     editable; the Nix build turns them into plain installs."""
+    python_identity.validate_inputs(inputs, os.path.join(venv, "bin", "python"))
     sources = load(inputs, "sources.json")
     versions = load(inputs, "versions.json")
     args = load(inputs, "args.json")
@@ -239,11 +243,19 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
             path = os.path.join(inputs, sources[url])
             if not os.path.isdir(path):
                 return path
-            copy = os.path.join(copies, str(len(os.listdir(copies)) if os.path.isdir(copies) else 0))
-            shutil.copytree(path, copy, symlinks=True)
-            subprocess.run(["chmod", "-R", "u+w", copy], check=True)
-            if url in versions:
-                tag(copy, versions[url])
+            if editable and kind == "vcs":
+                # Editable installs retain references to their source directory.
+                # Keep pinned copies with the venv, and preserve local edits on
+                # repeated prefetch. A changed locked source gets a new copy.
+                identity = hashlib.sha256((url + "\0" + os.path.realpath(path)).encode()).hexdigest()
+                copy = os.path.join(venv, "src", "pip-purifier", identity)
+            else:
+                copy = os.path.join(copies, str(len(os.listdir(copies)) if os.path.isdir(copies) else 0))
+            if not os.path.exists(copy):
+                shutil.copytree(path, copy, symlinks=True)
+                subprocess.run(["chmod", "-R", "u+w", copy], check=True)
+                if url in versions:
+                    tag(copy, versions[url])
             return copy
 
         configuration = os.path.join(inputs, "python-inputs.json")
@@ -273,6 +285,12 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
             *rewritten,
         ]
         env = environment(inputs)
+        env.update(installer_env or {})
+        # This private command is supplied only by the pure Nix builder. Local
+        # adoption must discard it even if the caller inherited tool state.
+        env.pop("PIP_PURIFIER_NATIVE_REPAIR", None)
+        if repair_native and os.environ.get("PIP_PURIFIER_NATIVE_REPAIR"):
+            env["PIP_PURIFIER_NATIVE_REPAIR"] = os.environ["PIP_PURIFIER_NATIVE_REPAIR"]
         if os.environ.get("PIP_PURIFIER_EXPORT_WHEELS"):
             env["PIP_PURIFIER_EXPORT_WHEELS"] = os.environ["PIP_PURIFIER_EXPORT_WHEELS"]
         serve_repositories(inputs, tmp, env)
@@ -285,6 +303,8 @@ def install(pip, project, inputs, venv, editable, extra=(), pylock=None):
             if replayer:
                 replayer.terminate()
                 replayer.wait()
+        if repair_native:
+            native_runtime.repair(inputs, venv)
 
 
 def run_pip(command, cwd, env, stdout=False):

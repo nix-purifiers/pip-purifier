@@ -63,6 +63,26 @@ pip as `--build-constraint` (`Rewriter.build_constraints` in
 `pkgs/build-pip-project/pip_inputs.py`), in the lock run and in the offline install, so
 the build environments of sdists use the project's versions.
 
+## Runtime identity in locks
+
+Regular CPython captures retain format 4 without an ABI field. Free-threaded
+captures use format 5 with required canonical `pythonAbi` (for example
+`cp315t`), even when every dependency is pure Python or the graph is empty.
+Readers validate the format-specific shape; older readers refuse format 5.
+The actual target interpreter supplies its ABI and compatible tags, including
+`abi3t` rather than `abi3` for free-threaded CPython. Wheel filtering and
+cross-system downloads use those tags.
+
+Sandboxed builds check the supplied SDK's primary ABI metadata, then probe the
+actual interpreter before dependency installation. Local wrapper targets are
+also probed before realizing inputs. Local capture/prefetch/wrapper commands
+select an existing runtime; `.pip-purifier/runtime.json` records the capture
+selection outside the portable lock. `locked-artifacts.nix` materializes local
+downloads without a project SDK or Nix runtime repair configuration. Pure builds
+use that same artifact implementation with a caller-supplied immutable SDK and
+explicit native runtime configuration. A matching major/minor version alone does
+not establish ABI compatibility.
+
 ## The Nix library
 
 `readLock` (`lib-overlays/default/read-lock.nix`) reads the lockfile into the lock shape
@@ -94,3 +114,45 @@ partial clone of a shallow repository fetches the shallow commit's parent
 again and again. A Mercurial, Subversion or Bazaar
 repository named in metadata is answered by `pkgs/build-pip-project/vcs_shim.py`, and a URL
 named in metadata by `mitm-cache replay`.
+
+## Local installer management tools
+
+`installer_driver.py` selects a hash-bound pip payload independently of the
+project runtime. Candidate wheel metadata supplies `Requires-Python`; the actual
+existing interpreter probes the runner, supported options and native `--python`
+delegation before a target environment is created or reused. Local replay selects
+the lock's recorded pip version and checks any retained capture payload hash.
+The payload is a separate tool, not a distribution installed into the project.
+Capture records its actual resolver version; regular current-runtime locks retain
+their existing bytes. Local state retains the selected tool identity beside the
+runtime selection. Missing candidates or capabilities fail explicitly.
+
+The compatible driver supports the tested older-runtime capture/replay path.
+A hash-certified pip 25 management payload can forward build constraints only
+to its isolated dependency-install children. Each child receives runtime
+constraints for its build requirements and forwarded build constraints for
+nested source builds. The top-level runtime requirements and any existing user
+constraints remain unchanged. Unknown child shapes and incompatible adapter
+provenance are refused. Native-feature drivers keep their native implementation.
+Pylock lowering remains a separate unsupported gate for older helpers.
+
+Capture preserves build constraints, config settings and isolation options
+through wheel naming and sdist generation. The build management library runs
+separately; backend hooks and isolated build dependencies use the selected
+existing project interpreter. Capture does not substitute the helper's runtime
+when generating source artifacts.
+
+Producer-binding mode additionally requires the exact Factory and Distribution
+hook signatures and the active metadata backend that this runner patches.
+The probe and the execution path share that check. Unknown or unvalidated
+backends are refused before a local target venv is created/reused, including
+when an explicit offline input view supplies the bindings. Older-runtime
+producer binding support is not inferred from unbound packaging replay.
+
+SDK metadata and actual identity are distinct gates. An advertised primary ABI
+must match the lock; an older SDK without that metadata remains unknown at
+evaluation. Before publishing a supplied-SDK input view, its actual interpreter
+is probed for CPython version and ABI. A mismatch fails before the output or
+SDK link is created. Local SDK-free artifact views do not acquire or execute a
+project SDK. This identity gate does not establish the historical SDK's installer
+or source-build protocol support.

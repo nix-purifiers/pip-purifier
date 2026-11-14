@@ -23,8 +23,14 @@ pip-purifier prefetch
 python -m pytest
 ```
 
-`prefetch` creates and installs the project’s `.venv` from the locked
-dependencies. The activation command makes it available to your shell.
+`lock` uses your active environment, existing project `.venv`, previously
+recorded capture runtime, or Python on PATH. Use `lock --python /path/to/python`
+to select another existing runtime. The selection is local state beside the
+lock; portable locks contain version and ABI identity, not host paths.
+`prefetch` creates and installs the project's `.venv` with that runtime and
+the locked dependencies. The activation command makes it available to your shell.
+Local adoption does not acquire a project Python SDK or build Python from source.
+The command's installer helper has its own separate runtime.
 
 Commit the lockfiles that the lock command writes, including the build
 tool's own lockfile when it has one. Keep using the project's usual build,
@@ -37,6 +43,16 @@ Sandboxed builds of the whole project are an optional
 
 For persistent use, add these packages through your usual Nix configuration.
 
+
+Dependency groups can be locked without installing the project itself:
+
+```zsh
+pip-purifier lock -- --group test
+pip-purifier lock -- --group packages/core/pyproject.toml:test
+```
+
+The lock tracks each selected group's source file, including included groups.
+Named `pylock.toml` groups and extras keep pip's native selection behavior.
 
 ## Development loop
 
@@ -59,6 +75,18 @@ pip-purifier prefetch
 ```zsh
 pip-purifier pip --python .venv/bin/python list
 ```
+
+In sandboxed Linux builds, installed binary wheels receive Nix search paths for the C++ runtime
+and zlib, so their extensions also load when running `.venv/bin/python`
+directly. Existing vendor library paths are preserved and installed `RECORD`
+hashes are refreshed, including after the Nix build's fixups. Bundled dynamic
+ELF executables for the target architecture also receive the Nix loader;
+static and foreign-architecture binaries remain unchanged. The locked wheel
+archives remain unchanged. For additional
+shared libraries in a Nix build, pass `runtimeLibraries` to `buildPipProject`;
+that option replaces the default library list. Local environments use their existing
+host runtime and library setup; local prefetch does not inject the Nix loader or
+library paths.
 
 After a change to the requirements, `pip-purifier lock` relocks. A relock
 keeps the files of the existing lockfile: for each package that the

@@ -63,6 +63,7 @@ ARG_OPTIONS_WITH_VALUE = dict(
         "--abi": "keep",
         "--implementation": "keep",
         "--extra": "keep",
+        "--group": "group",
     },
 )
 
@@ -107,6 +108,14 @@ def fragment_params(fragment):
     return params
 
 
+def local_spec_parts(spec):
+    """Separate pip's local path prefix from its original extras/marker suffix."""
+    head = spec.split(";", 1)[0].strip()
+    match = re.match(r"^(.+)(\[[^\]]+\])$", head)
+    path = match.group(1).rstrip() if match else head
+    return path, spec[len(path):]
+
+
 def parse_spec(spec):
     """Classifies a requirement specifier: a named URL (`name @ url`), a bare
     URL, a local path, or an index requirement."""
@@ -120,8 +129,9 @@ def parse_spec(spec):
     if vcs_scheme(token) or is_url(token):
         params = fragment_params(token.split("#", 1)[1]) if "#" in token else {}
         return {"kind": "url", "name": params.get("egg"), "url": token, "rest": spec[spec.index(token) + len(token) :]}
-    if token.startswith((".", "/", "~")) or os.sep in token.split("[")[0]:
-        return {"kind": "path", "path": token, "rest": spec[spec.index(token) + len(token) :]}
+    if first.startswith((".", "/", "~")) or os.sep in first:
+        path, rest = local_spec_parts(spec)
+        return {"kind": "path", "path": path, "rest": rest}
     return {"kind": "index", "spec": spec}
 
 
@@ -192,6 +202,51 @@ def write_pylock(data):
     return "\n".join(out) + "\n"
 
 
+def editable_file_value(line):
+    """Read one editable option value while retaining its raw trailing text."""
+    lexer = shlex.shlex(line, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    option = lexer.get_token()
+    if option in ("-e", "--editable"):
+        value = lexer.get_token()
+        if value is None:
+            raise ValueError("missing editable requirement value")
+    elif option.startswith("--editable="):
+        value = option.split("=", 1)[1]
+    else:
+        value = option[2:]
+    end = lexer.instream.tell()
+    # shlex consumes one unquoted delimiter when returning a token. EOF,
+    # quoted whitespace and escaped whitespace remain part of the value.
+    if lexer.state == " " and end and line[end - 1] in lexer.whitespace:
+        end -= 1
+    return value, line[end:]
+
+
+def check_pure_editable_tail(tail):
+    """Refuse tails that acquire meaning when a pure build removes -e."""
+    if not tail.strip():
+        return
+    if not tail.lstrip().startswith("-"):
+        raise ValueError("pure replay cannot convert editable requirements-file trailing positional text")
+    tokens = shlex.split(tail, posix=True)
+    i = 0
+    while i < len(tokens):
+        option = tokens[i]
+        attached = False
+        if option.startswith("--") and "=" in option:
+            option = option.split("=", 1)[0]
+            attached = True
+        if option == "--hash":
+            raise ValueError("pure replay cannot activate ignored editable requirements-file --hash options")
+        # Only identify values of already-known options; never filter or
+        # reconstruct the tail. Unknown options still reach pip unchanged.
+        if option in FILE_OPTIONS_WITH_VALUE and not attached:
+            i += 1
+        i += 1
+
+
 class Rewriter:
     """Rewrites the inputs of a pip install.
 
@@ -221,6 +276,7 @@ class Rewriter:
         self.specs = []
         self.dirs = []
         self.written = {}
+        self.group_files = 0
         # The versions that a hashed requirement or a pylock.toml pins, by
         # normalized name, which constrain the build environments too.
         self.pinned = {}
@@ -265,7 +321,14 @@ class Rewriter:
     def spec(self, spec, editable=False):
         """A rewritten requirement specifier (without `-e`), and whether it
         stays editable."""
+        spec = spec.strip()
         parsed = parse_spec(spec)
+        if editable and parsed["kind"] == "index":
+            path, rest = local_spec_parts(spec)
+            if path and os.path.isdir(self.local_path(path)):
+                parsed = {"kind": "path", "path": path, "rest": rest}
+        if editable and parsed["kind"] == "path" and ";" in parsed["rest"]:
+            raise ValueError("local editable requirements cannot have environment markers")
         name = parsed.get("name")
         module = self.provided.get(re.sub(r"[-_.]+", "-", name.split("[")[0].lower())) if name else None
         if module:
@@ -354,8 +417,11 @@ class Rewriter:
                     raise SystemExit(f"pip-purifier: requirements files from a URL are not supported, because the build reads them offline: {nested}")
                 return f"{option} {shlex.quote(self.requirements_file(nested))}"
             if kind == "editable":
-                spec, editable = self.spec(" ".join(tokens[1:]), editable=True)
-                return ("-e " if editable else "") + spec
+                value, tail = editable_file_value(line)
+                if self.mode == "offline" and not self.editable:
+                    check_pure_editable_tail(tail)
+                spec, editable = self.spec(value, editable=True)
+                return ("-e " + shlex.quote(spec) if editable else spec) + tail
             if kind in ("index", "extra-index", "find-links", "trusted-host"):
                 return " ".join(shlex.quote(t) for t in self.index_option(option, tokens[1], base))
             if option == "--no-index":
@@ -482,6 +548,61 @@ class Rewriter:
 
     # The command line.
 
+    def dependency_group(self, value):
+        """Materialize a PEP 735 group as requirements, tracking its source.
+
+        pip resolves includes relative to the selected pyproject, and a group
+        does not install that project. Validate requirement strings before
+        writing them so requirement-file options cannot acquire new semantics.
+        """
+        from packaging.requirements import Requirement
+
+        filename, separator, group = value.rpartition(":")
+        if not separator:
+            filename, group = "pyproject.toml", value
+        lock_filename, _, extras = filename.partition("[")
+        if re.fullmatch(r"pylock(?:\.[^.]+)?\.toml", os.path.basename(lock_filename)):
+            target = self.pylock(self.local_path(lock_filename))
+            suffix = "[" + extras if extras else ""
+            return ["--group", f"{target}{suffix}:{group}"]
+        path = self.local_path(filename)
+        self.record_input(path)
+        with open(path, "rb") as source:
+            data = tomllib.load(source).get("dependency-groups", {})
+        normalize = lambda name: re.sub(r"[-_.]+", "-", name).lower()
+        groups = {}
+        for name, dependencies in data.items():
+            normalized = normalize(name)
+            if normalized in groups:
+                raise ValueError(f"duplicate dependency group {name!r} in {path}")
+            groups[normalized] = dependencies
+
+        def resolve(name, stack=()):
+            key = normalize(name)
+            if key in stack:
+                raise ValueError(f"cyclic dependency group {name!r} in {path}")
+            if key not in groups or not isinstance(groups[key], list):
+                raise ValueError(f"missing or malformed dependency group {name!r} in {path}")
+            requirements = []
+            for dependency in groups[key]:
+                if isinstance(dependency, str):
+                    Requirement(dependency)
+                    requirements.append(self.spec(dependency)[0])
+                elif (isinstance(dependency, dict) and set(dependency) == {"include-group"}
+                      and isinstance(dependency["include-group"], str)):
+                    requirements.extend(resolve(dependency["include-group"], (*stack, key)))
+                else:
+                    raise ValueError(f"invalid dependency in group {name!r} in {path}")
+            return requirements
+
+        requirements = resolve(group)
+        target = os.path.join(self.out, "_groups", f"{self.group_files}.txt")
+        self.group_files += 1
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as destination:
+            destination.write("".join(requirement + "\n" for requirement in requirements))
+        return ["-r", target]
+
     def args(self, args):
         """Rewrites the arguments of `pip install`."""
         out = []
@@ -503,6 +624,8 @@ class Rewriter:
                     out += [option, self.requirements_file(os.path.join(self.project, value))]
                 elif kind == "script":
                     out += [option, self.script(os.path.join(self.project, value))]
+                elif kind == "group":
+                    out += self.dependency_group(value)
                 elif kind == "editable":
                     spec, editable = self.spec(value, editable=True)
                     out += (["-e"] if editable else []) + [spec]

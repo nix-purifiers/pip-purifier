@@ -1,4 +1,3 @@
-# The lock format version this library reads. read-lock.nix rejects any
-# other. The lock tool reads the same file (FORMAT_VERSION in
-# src/pip_purifier.py).
+# The unchanged regular-CPython writer format. ABI-aware captures use
+# lock-abi-version.nix; readers validate each format's identity separately.
 4

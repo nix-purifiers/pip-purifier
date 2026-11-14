@@ -3,6 +3,7 @@
 rewriting of pip's inputs in lock and offline modes."""
 
 import os
+import shlex
 import tempfile
 import tomllib
 import unittest
@@ -127,6 +128,63 @@ class RewriterTest(unittest.TestCase):
         nested = self.read(os.path.join(out, "requirements", "base.txt"))
         self.assertEqual(nested, "idna==3.10 --hash=sha256:aa\n")
 
+    def test_dependency_groups_track_and_rewrite_only_selected_dependencies(self):
+        self.write("vendor/pkg/pyproject.toml", '''
+[dependency-groups]
+common = ["six @ https://example.org/six.whl"]
+test_group = [{include-group = "common"}, "attrs; python_version >= '3.11'"]
+other = ["unused @ https://example.org/unused.whl"]
+''')
+        rewriter = pip_inputs.Rewriter(self.project, os.path.join(self.tmp.name, "offline"),
+                                      "offline", local=lambda *args: "/locked/six.whl")
+        args = rewriter.args(["--group", "vendor/pkg/pyproject.toml:Test.Group"])
+        self.assertEqual(rewriter.inputs, ["vendor/pkg/pyproject.toml"])
+        self.assertEqual(rewriter.dirs, [])
+        self.assertEqual(args[0], "-r")
+        requirements = self.read(args[1])
+        self.assertIn("six @ file:///locked/six.whl", requirements)
+        self.assertIn("attrs; python_version >= '3.11'", requirements)
+        self.assertNotIn("unused", requirements)
+        self.assertEqual(len(rewriter.specs), 1)
+
+    def test_dependency_group_only_project_records_pyproject(self):
+        self.write("pyproject.toml", '[dependency-groups]\ntest = ["six"]\n')
+        rewriter = pip_inputs.Rewriter(self.project, os.path.join(self.tmp.name, "lock"), "lock")
+        args = rewriter.args(["--group=test", "--group", "test"])
+        self.assertEqual(rewriter.inputs, ["pyproject.toml"])
+        self.assertEqual(args[0], "-r")
+        self.assertEqual(args[2], "-r")
+        self.assertEqual(self.read(args[1]), "six\n")
+
+    def test_dependency_group_rejects_cycles_and_non_requirement_options(self):
+        for groups in ('a = [{include-group = "a"}]',
+                       'a = ["--index-url https://example.org"]'):
+            with self.subTest(groups=groups):
+                self.write("pyproject.toml", '[dependency-groups]\n' + groups + '\n')
+                rewriter = pip_inputs.Rewriter(self.project, os.path.join(self.tmp.name, "lock"), "lock")
+                with self.assertRaises(ValueError):
+                    rewriter.args(["--group", "a"])
+
+    def test_pylock_group_keeps_native_group_and_extra_selection(self):
+        self.write("pylock.tests.toml", '''lock-version = "1.0"
+dependency-groups = ["dev", "docs"]
+[[packages]]
+name = "six"
+version = "1.17.0"
+wheels = [{url = "https://example.org/six.whl", hashes = {sha256 = "aa"}}]
+''')
+        rewriter = pip_inputs.Rewriter(self.project, os.path.join(self.tmp.name, "offline"),
+                                      "offline", local=lambda *args: "/locked/six.whl")
+        args = rewriter.args(["--group", "pylock.tests.toml[feature]:dev",
+                              "--group=pylock.tests.toml:docs"])
+        self.assertEqual(args[0], "--group")
+        self.assertTrue(args[1].endswith("pylock.tests.toml[feature]:dev"))
+        self.assertTrue(args[3].endswith("pylock.tests.toml:docs"))
+        target = args[1].split("[")[0]
+        data = tomllib.loads(self.read(target))
+        self.assertEqual(data["packages"][0]["wheels"][0]["path"], "/locked/six.whl")
+        self.assertEqual(rewriter.inputs, ["pylock.tests.toml"])
+
     def test_offline_mode(self):
         out = os.path.join(self.tmp.name, "offline")
         local = {"vcs": "/nix/store/attrs-checkout", "url": "/inputs/wheelhouse/six-1.17.0.tar.gz"}
@@ -143,6 +201,13 @@ class RewriterTest(unittest.TestCase):
         rewriter = pip_inputs.Rewriter(self.project, out, "offline", local=lambda kind, url, name: "/x", editable=True)
         text = self.read(rewriter.args(["-r", "requirements.txt"])[1])
         self.assertIn(f"-e {self.project}", text)
+
+    def test_editable_vcs_requirement_keeps_named_url_as_one_argument(self):
+        self.write("editable.txt", "-e git+https://example.invalid/probe.git@main#egg=probe\n")
+        rewriter = pip_inputs.Rewriter(self.project, os.path.join(self.tmp.name, "offline"), "offline",
+                                      local=lambda *_args: "/retained/probe", editable=True)
+        line = self.read(rewriter.args(["-r", "editable.txt"])[1]).strip()
+        self.assertEqual(shlex.split(line), ["-e", "probe @ file:///retained/probe"])
 
     def test_command_line_options(self):
         out = os.path.join(self.tmp.name, "lock")

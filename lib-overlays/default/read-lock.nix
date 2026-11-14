@@ -32,6 +32,7 @@ let
     ;
 
   supportedVersion = import ./lock-version.nix;
+  abiVersion = import ./lock-abi-version.nix;
 
   # The top-level fields of a lockfile; LOCK_FIELDS in src/pip_purifier.py
   # lists the same.
@@ -147,11 +148,29 @@ let
       stale = filter (
         rel: !(builtins.pathExists (resolve rel)) || hashFile "sha256" (resolve rel) != lock.inputs.${rel}
       ) (attrNames lock.inputs);
+      pythonValid = builtins.isString lock.python && builtins.match "[0-9]+\\.[0-9]+" lock.python != null;
+      primary = "cp" + builtins.replaceStrings [ "." ] [ "" ] lock.python;
+      abiValid =
+        pythonValid
+        && builtins.isString (lock.pythonAbi or null)
+        && builtins.elem lock.pythonAbi [
+          primary
+          (primary + "t")
+        ];
     in
     if missing != [ ] then
       "pip-purifier: ${name} is not a pip-purifier lockfile: it lacks ${lib.concatStringsSep ", " missing}. Run `pip-purifier lock`."
-    else if lock.version != supportedVersion then
-      "pip-purifier: ${name} has lock format version ${toString lock.version}; this library reads version ${toString supportedVersion}. Run `pip-purifier lock` with the pip-purifier that provides this library."
+    else if
+      !(builtins.elem lock.version [
+        supportedVersion
+        abiVersion
+      ])
+    then
+      "pip-purifier: ${name} has lock format version ${toString lock.version}; this library reads versions ${toString supportedVersion} and ${toString abiVersion}. Run `pip-purifier lock` with the pip-purifier that provides this library."
+    else if lock.version == supportedVersion && lock ? pythonAbi then
+      "pip-purifier: ${name} has ABI metadata in legacy format ${toString supportedVersion}. Run `pip-purifier lock`."
+    else if lock.version == abiVersion && !abiValid then
+      "pip-purifier: ${name} has missing or inconsistent Python ABI metadata. Run `pip-purifier lock`."
     else if lock.hash != hashOf lock then
       "pip-purifier: ${name} was changed after `pip-purifier lock` wrote it: its content does not match its hash. Run `pip-purifier lock`."
     else if stale != [ ] then

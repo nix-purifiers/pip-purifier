@@ -27,6 +27,11 @@ let
   # setuptools) and a dependency with platform wheels (PyYAML).
   project = build { src = ./fixtures/project; };
 
+  nativeNode = import ./native-runtime-node.nix {
+    inherit pkgs;
+    environment = project.environment;
+  };
+
   # Native pip understands editable extras; its report must also establish
   # package ownership and track the local project's manifest.
   editableExtras = build { src = ./fixtures/editable-extras; };
@@ -197,25 +202,32 @@ let
   # the change.
   offline =
     fixture: inputs: program: expected: edit: edited:
-    runCommand "pip-purifier-conformance-offline" { nativeBuildInputs = [ cli ]; } ''
-      cp -r ${fixture} project
-      chmod -R u+w project
-      cd project
-      export HOME=$TMPDIR
-      pip-purifier prefetch --inputs ${inputs}
-      check() {
-        output=$(.venv/bin/${program})
-        echo "$output"
-        if [ "$output" != "$1" ]; then
-          echo "expected: $1" >&2
-          exit 1
-        fi
+    runCommand "pip-purifier-conformance-offline"
+      {
+        nativeBuildInputs = [
+          cli
+          pkgs.python3
+        ];
       }
-      check ${lib.escapeShellArg expected}
-      ${edit}
-      check ${lib.escapeShellArg edited}
-      touch $out
-    '';
+      ''
+        cp -r ${fixture} project
+        chmod -R u+w project
+        cd project
+        export HOME=$TMPDIR
+        pip-purifier prefetch --inputs ${inputs}
+        check() {
+          output=$(.venv/bin/${program})
+          echo "$output"
+          if [ "$output" != "$1" ]; then
+            echo "expected: $1" >&2
+            exit 1
+          fi
+        }
+        check ${lib.escapeShellArg expected}
+        ${edit}
+        check ${lib.escapeShellArg edited}
+        touch $out
+      '';
 
   # The hashed fixture without its lockfile, built from the lockfile kept
   # outside it, as a packaging flake builds a project it does not change.
@@ -244,7 +256,15 @@ in
     withNativeTestTool.tests;
   editable-extras =
     runCommand "pip-editable-extras-capture-replay-release"
-      ({ nativeBuildInputs = [ cli ]; } // loopback)
+      (
+        {
+          nativeBuildInputs = [
+            cli
+            pkgs.python3
+          ];
+        }
+        // loopback
+      )
       ''
         export HOME=$TMPDIR
         ${pkgs.python3.interpreter} ${./network_check.py} > network.json
@@ -393,7 +413,10 @@ in
       (
         {
           nativeBuildInputs = [
-            pkgs.python3
+            (pkgs.python3.withPackages (ps: [
+              ps.packaging
+              ps.pip
+            ]))
             pkgs.git
           ];
         }
@@ -405,7 +428,7 @@ in
         export PIP_PURIFIER_NIX_LIB=${../.}/pkgs/build-pip-project
         export PIP_PURIFIER_PYTHON=${pkgs.python3.interpreter}
         export PIP_PURIFIER_NIXPKGS=${pkgs.path}
-        export PYTHONPATH=${../pkgs/build-pip-project}:${../src}
+        export PYTHONPATH=${../pkgs/build-pip-project}:${../src}:${cli}/share/pip-purifier/purifier/tools
         python -m unittest discover -s ${./unit} -v
         mkdir -p $out
         cp network.json $out/network.json
@@ -421,8 +444,24 @@ in
     ${lib.getExe cli} publish --help
     touch $out
   '';
+  abi-locks = import ./abi-locks.nix {
+    inherit pkgs;
+    buildPipProject = build;
+  };
+  wheel-data = import ./wheel-data.nix {
+    inherit pkgs;
+    buildPipProject = build;
+  };
 }
 // import ./conformance.nix {
   inherit pkgs;
   buildPipProject = build;
+}
+// lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+  native-runtime = import ./native-runtime.nix { inherit pkgs; };
+  native-runtime-paths = import ./native-runtime-paths.nix { inherit pkgs; };
+}
+// lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+  native-runtime-node = nativeNode;
+  native-runtime-node-fixup = nativeNode.fixup;
 }

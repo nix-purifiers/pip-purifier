@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Run native pip with Nix repository bindings and optional wheel capture."""
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -8,7 +9,16 @@ import shutil
 import sys
 import tempfile
 
-native_paths = sys.path.copy()
+def sha256_file(source):
+    digest = hashlib.sha256()
+    for block in iter(lambda: source.read(1024 * 1024), b''):
+        digest.update(block)
+    return digest
+
+
+runtime_directory = str(Path(__file__).resolve().parent)
+native_paths = [path for path in sys.path if path != runtime_directory]
+sys.path.insert(0, runtime_directory)
 if os.environ.get('PIP_PURIFIER_PIP_PATH'):
     sys.path.insert(0, os.environ['PIP_PURIFIER_PIP_PATH'])
 import pip
@@ -16,12 +26,71 @@ from pip._internal.cli import main_parser
 from pip._internal.cli.main import main
 
 # Keep the adapter when native pip delegates --python to a virtualenv.
-# Build-isolation subprocesses retain pip's original entry point instead.
+# Pure native repair also retains this entry in build-isolation subprocesses.
 os.environ['PIP_PURIFIER_PIP_PATH'] = str(Path(pip.__file__).parent.parent)
 main_parser.get_runnable_pip = lambda: str(Path(__file__).resolve())
 
+def binding_protocol():
+    """Check the exact hooks this runner patches, before any pip operation."""
+    try:
+        from pip._internal.models.link import Link
+        from pip._internal.resolution.resolvelib.factory import Factory
+        from pip._internal.metadata import select_backend
+        from pip._internal.metadata.importlib._dists import Distribution
+        from pip._vendor.packaging.requirements import Requirement
+        from pip._vendor.packaging.utils import canonicalize_name
+        if select_backend().Distribution is not Distribution:
+            return 'the active metadata backend is not the validated binding backend'
+        inspect.signature(Factory._make_requirements_from_install_req).bind(None, None, set())
+        inspect.signature(Distribution.iter_dependencies).bind(None, ())
+        if not all(callable(item) for item in (Link, Requirement, canonicalize_name)):
+            return 'producer binding constructors are unavailable'
+    except (ImportError, AttributeError, TypeError, ValueError) as error:
+        return 'producer binding protocol is unavailable: ' + str(error)
+    return None
+
+
+from pip._internal.commands import create_command
+native_build_constraints = create_command('install').parser.has_option('--build-constraint')
+constraint_adapter = False
+if not native_build_constraints:
+    import legacy_build_constraints
+    constraint_adapter = legacy_build_constraints.available()
+
+if sys.argv[1:] == ['--purifier-probe']:
+    from pip._internal.commands import create_command
+    from pip._internal.req import req_install
+    from pip._internal.operations.install import wheel
+    parser = create_command('install').parser
+    capabilities = [name for name, option in [
+        ('report', '--report'), ('build-constraint', '--build-constraint'),
+        ('pylock', '--pylock')] if parser.has_option(option)]
+    if main_parser.create_main_parser().has_option('--python'):
+        capabilities.append('python')
+    if callable(getattr(wheel, 'install_wheel', None)):
+        capabilities.append('wheel-capture')
+    if constraint_adapter:
+        capabilities.append('build-constraint')
+    binding_error = binding_protocol()
+    if binding_error is None:
+        capabilities.append('producer-bindings')
+    print(json.dumps({'pip': pip.__version__, 'capabilities': capabilities,
+                      'bindingError': binding_error,
+                      'buildConstraintAdapter': legacy_build_constraints.IDENTITY if constraint_adapter else None}))
+    sys.exit(0)
+
+if constraint_adapter:
+    legacy_build_constraints.activate(Path(__file__).resolve())
+
+if os.environ.get('PIP_PURIFIER_NATIVE_REPAIR'):
+    import isolated_native
+    isolated_native.activate(Path(__file__).resolve())
+
 bindings = os.environ.get('PIP_PURIFIER_BINDINGS')
 if bindings:
+    binding_error = binding_protocol()
+    if binding_error:
+        raise SystemExit('pip-purifier: ' + binding_error)
     from pip._internal.models.link import Link
     from pip._internal.resolution.resolvelib.factory import Factory
     from pip._vendor.packaging.requirements import Requirement
@@ -39,7 +108,7 @@ if bindings:
             requirement.link = requirement.original_link = Link(wheel.as_uri())
             requirement.local_file_path = str(wheel)
             with wheel.open('rb') as source:
-                requirement.hash_options = {'sha256': [hashlib.file_digest(source, 'sha256').hexdigest()]}
+                requirement.hash_options = {'sha256': [sha256_file(source).hexdigest()]}
         yield from original(self, requirement, requested_extras)
 
     Factory._make_requirements_from_install_req = requirements
@@ -85,7 +154,7 @@ if capture:
                 os.link(temporary_path, destination / wheel.name)
             except FileExistsError:
                 with wheel.open('rb') as source, (destination / wheel.name).open('rb') as previous:
-                    if hashlib.file_digest(source, 'sha256').digest() != hashlib.file_digest(previous, 'sha256').digest():
+                    if sha256_file(source).digest() != sha256_file(previous).digest():
                         raise ValueError('conflicting native wheel bytes: ' + wheel.name)
         finally:
             temporary_path.unlink()

@@ -38,15 +38,19 @@ sys.path.insert(0, NIX_LIB)
 import offline  # noqa: E402
 import pip_inputs  # noqa: E402
 import python_bindings  # noqa: E402
+import python_identity  # noqa: E402
+import installer_driver  # noqa: E402
 sys.path.insert(0, os.environ.get("PIP_PURIFIER_PROJECT_INPUTS_TOOLS", str(Path(NIX_LIB).parents[1] / "purifier/tools")))
 
 # The lock format version. lib-overlays/default/lock-version.nix reads the same.
 with open(os.path.join(NIX_LIB, "../../lib-overlays/default/lock-version.nix")) as _f:
     FORMAT_VERSION = int(re.findall(r"^\d+$", _f.read(), re.M)[0])
+with open(os.path.join(NIX_LIB, "../../lib-overlays/default/lock-abi-version.nix")) as _f:
+    ABI_FORMAT_VERSION = int(re.findall(r"^\d+$", _f.read(), re.M)[0])
 
 LOCKFILE = "pip-purifier.lock.json"
 PIP = [sys.executable, "-m", "pip"]
-PYTHON = os.environ["PIP_PURIFIER_PYTHON"]
+INSTALLER = None
 NIXPKGS = os.environ["PIP_PURIFIER_NIXPKGS"]
 
 # The Nix systems a lockfile can cover, with the CPU name of their wheel
@@ -334,7 +338,7 @@ def dist_name_version(name):
     return normalize(m.group(1)), m.group(2)
 
 
-def wheel_runs_on(name, arch, python):
+def wheel_runs_on(name, arch, python, abis=None):
     """Whether a wheel installs with CPython `python` ("3.14") on Linux for
     `arch`, with any glibc, or on macOS for "arm64", at one of
     MACOS_PLATFORMS. The Nix build applies its own glibc."""
@@ -343,28 +347,34 @@ def wheel_runs_on(name, arch, python):
         return False
     major, minor = python.split(".")
     cp = f"cp{major}{minor}"
-    pythons, abis, platforms = tags
+    pythons, wheel_abis, platforms = tags
+    supported_abis = abis if abis is not None else [cp, "abi3", "none"]
 
     def python_ok(tag, abi):
+        if abi not in supported_abis:
+            return False
         if abi == "none":
             m = re.match(rf"^(py|cp){major}(\d*)$", tag)
             return bool(m) and (m.group(2) == "" or int(m.group(2)) <= int(minor))
-        if abi == "abi3":
+        if abi in ("abi3", "abi3t"):
             m = re.match(rf"^cp{major}(\d+)$", tag)
-            return bool(m) and int(m.group(1)) <= int(minor)
-        return abi in (cp, cp + "t") and tag == cp
+            minimum = 15 if abi == "abi3t" else 2
+            return bool(m) and minimum <= int(m.group(1)) <= int(minor)
+        return tag == cp
 
     def platform_ok(tag):
         if arch == "arm64":
             return tag == "any" or tag in MACOS_PLATFORMS
         return tag == "any" or (tag.endswith("_" + arch) and tag.startswith(("manylinux", "linux")))
 
-    return any(platform_ok(p) for p in platforms) and any(python_ok(t, a) for t in pythons for a in abis)
+    return any(platform_ok(p) for p in platforms) and any(python_ok(t, a) for t in pythons for a in wheel_abis)
 
 
-def platform_args(arch, python):
+def platform_args(arch, python, abis=None):
     major, minor = python.split(".")
-    args = ["--only-binary=:all:", "--python-version", python, "--implementation", "cp", "--abi", f"cp{major}{minor}", "--abi", "abi3", "--abi", "none"]
+    args = ["--only-binary=:all:", "--python-version", python, "--implementation", "cp"]
+    for abi in abis if abis is not None else [f"cp{major}{minor}", "abi3", "none"]:
+        args += ["--abi", abi]
     if arch == "arm64":
         platforms = MACOS_PLATFORMS
     else:
@@ -377,6 +387,63 @@ def platform_args(arch, python):
     for p in platforms:
         args += ["--platform", p]
     return args
+
+
+def activate_installer(target, locked=None, required=(), lockfile=None):
+    global PIP, INSTALLER
+    previous = None
+    if locked and lockfile:
+        state = Path(lockfile).parent / ".pip-purifier" / "runtime.json"
+        if state.exists():
+            previous = json.loads(state.read_text()).get("installer")
+    if os.environ.get("PIP_PURIFIER_BINDINGS") or (locked and locked.get("projectInputs")):
+        required = [*required, "producer-bindings"]
+    INSTALLER = installer_driver.select(target, expected=locked["pip"] if locked else None,
+        required=["python", "wheel-capture", *required], previous=previous)
+    PIP = INSTALLER["command"]
+    return INSTALLER
+
+
+def installer_environment(environment=None):
+    return dict(os.environ if environment is None else environment,
+                **(INSTALLER["environment"] if INSTALLER else {}))
+
+
+def local_python(project, lockfile, explicit=None, venv=".venv"):
+    """Select an existing runtime; host paths are local state, never lock data."""
+    if explicit:
+        return os.path.abspath(shutil.which(explicit) or explicit)
+    candidates = []
+    if os.environ.get("VIRTUAL_ENV"):
+        candidates.append(os.path.join(os.environ["VIRTUAL_ENV"], "bin", "python"))
+    candidates.append(os.path.join(project, venv, "bin", "python"))
+    state = Path(lockfile).parent / ".pip-purifier" / "runtime.json"
+    if state.exists():
+        candidates.append(json.loads(state.read_text())["python"])
+    candidates.extend(filter(None, [shutil.which("python3"), shutil.which("python")]))
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return os.path.abspath(candidate)
+    die("no existing project Python found; select one with `pip-purifier lock --python`.")
+
+
+def interpreter_profile(python):
+    """Probe only the target's stdlib; generate tags on the selected helper."""
+    import python_target
+    target = os.path.abspath(shutil.which(python) or python)
+    facts = json.loads(subprocess.check_output(
+        [target, "-E", "-s", "-c", python_target.PROBE],
+        cwd=Path(python_target.__file__).parent, text=True))
+    if facts["implementation"] != "cpython" or facts["config"].get("Py_DEBUG"):
+        die("lock capture requires a release CPython interpreter; choose one with `--python`.")
+    version = "%d.%d" % tuple(facts["version"][:2])
+    from python_repository import interpreter_tags
+    free_threaded = bool(facts["config"].get("Py_GIL_DISABLED"))
+    abi = "cp" + version.replace(".", "") + ("t" if free_threaded else "")
+    abis = list(dict.fromkeys(tag.split("-")[1] for tag in interpreter_tags(target)))
+    if abi not in abis:
+        die(f"the target probe did not establish ABI {abi}; choose a supported `--python`.")
+    return version, abi if free_threaded else None, abis
 
 
 def current_system():
@@ -561,8 +628,16 @@ def read_lock(project, path, pylock=None):
     missing = [field for field in LOCK_FIELDS if field not in lock] if isinstance(lock, dict) else LOCK_FIELDS
     if missing:
         die(f"{path} is not a pip-purifier lockfile: it lacks {', '.join(missing)}. Run `pip-purifier lock`.")
-    if lock["version"] != FORMAT_VERSION:
-        die(f"{path} has lock format version {lock['version']}; this pip-purifier reads version {FORMAT_VERSION}. Run `pip-purifier lock`.")
+    if lock["version"] not in (FORMAT_VERSION, ABI_FORMAT_VERSION):
+        die(f"{path} has lock format version {lock['version']}; this pip-purifier reads versions {FORMAT_VERSION} and {ABI_FORMAT_VERSION}. Run `pip-purifier lock`.")
+    if lock["version"] == FORMAT_VERSION and "pythonAbi" in lock:
+        die(f"{path} has ABI metadata in legacy format {FORMAT_VERSION}. Run `pip-purifier lock`.")
+    if lock["version"] == ABI_FORMAT_VERSION:
+        version = lock["python"]
+        abi = lock.get("pythonAbi")
+        if (not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+", version) or
+                abi not in ("cp" + version.replace(".", ""), "cp" + version.replace(".", "") + "t")):
+            die(f"{path} has missing or inconsistent Python ABI metadata. Run `pip-purifier lock`.")
     if lock["hash"] != lock_hash(lock):
         die(f"{path} was changed after `pip-purifier lock` wrote it: its content does not match its hash. Run `pip-purifier lock`.")
     gone = [rel for rel in lock["inputs"] if not os.path.exists(input_path(project, rel, pylock))]
@@ -575,7 +650,7 @@ def upstream_indexes(project):
     """The index URLs pip would use: from the environment, else from pip's
     configuration files, else PyPI."""
     config = {}
-    result = subprocess.run(PIP + ["config", "list"], capture_output=True, text=True, cwd=project)
+    result = subprocess.run(PIP + ["config", "list"], capture_output=True, text=True, cwd=project, env=installer_environment())
     for line in result.stdout.splitlines():
         key, _, value = line.partition("=")
         config[key.split(".", 1)[-1]] = value.strip().strip("'\"")
@@ -610,13 +685,154 @@ def lock_environment(tmp, proxy, index, extra, links):
 
 def run_pip(args, env, cwd, check=True):
     log(" ".join(args))
-    command = [sys.executable, os.path.join(NIX_LIB, "pip_runner.py"), *args]
+    command = [*PIP, *args]
+    env = installer_environment(env)
     if os.environ.get("PIP_PURIFIER_BINDINGS"):
         env["PIP_PURIFIER_BINDINGS"] = os.environ["PIP_PURIFIER_BINDINGS"]
     result = subprocess.run(command, env=env, cwd=cwd)
     if check and result.returncode != 0:
         die(f"pip failed with exit status {result.returncode}")
     return result.returncode == 0
+
+
+def source_build_options(args):
+    """Preserve backend options through every capture artifact operation."""
+    flags, constraints, settings = [], [], {}
+    isolated = True
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            break
+        option, equals, value = arg.partition("=")
+        if arg == "--no-build-isolation":
+            isolated = False
+            flags.append(arg)
+        elif option in ("--build-constraint", "--config-settings") or arg == "-C" or arg.startswith("-C"):
+            if arg.startswith("-C") and arg != "-C":
+                option, value, equals = "--config-settings", arg[2:], "="
+            elif arg == "-C":
+                option = "--config-settings"
+            if not equals:
+                index += 1
+                value = args[index]
+            flags += [option, value]
+            if option == "--build-constraint":
+                constraints.append(value)
+            else:
+                key, _, setting = value.partition("=")
+                if key in settings:
+                    previous = settings[key]
+                    settings[key] = [*previous, setting] if isinstance(previous, list) else [previous, setting]
+                else:
+                    settings[key] = setting
+        index += 1
+    return flags, constraints, settings, isolated
+
+
+def source_sdist(directory, destination, python, env, constraints, settings, isolated):
+    """Run backend hooks on the project runtime; management tools stay separate."""
+    import build
+
+    def backend_runner(command, cwd=None, extra_environ=None):
+        subprocess.run(command, cwd=cwd, env={**env, **(extra_environ or {})}, check=True)
+
+    if not isolated:
+        builder = build.ProjectBuilder(directory, python_executable=python, runner=backend_runner)
+        return builder.build("sdist", destination, config_settings=settings)
+    with tempfile.TemporaryDirectory(prefix="pip-purifier-sdist-") as temporary:
+        venv = os.path.join(temporary, "venv")
+        subprocess.run([python, "-m", "venv", "--without-pip", venv], env=env, check=True)
+
+        class ProjectEnvironment:
+            python_executable = os.path.join(venv, "bin", "python")
+
+            def make_extra_environ(self):
+                return {"PATH": os.path.join(venv, "bin") + os.pathsep + env.get("PATH", "")}
+
+            def install(self, requirements):
+                if requirements:
+                    arguments = ["--python", self.python_executable, "install"]
+                    for constraint in constraints:
+                        arguments += ["--constraint", constraint, "--build-constraint", constraint]
+                    run_pip([*arguments, *sorted(requirements)], env, directory)
+
+        environment = ProjectEnvironment()
+        builder = build.ProjectBuilder.from_isolated_env(environment, directory, runner=backend_runner)
+        environment.install(builder.build_system_requires)
+        environment.install(builder.get_requires_for_build("sdist", config_settings=settings))
+        return builder.build("sdist", destination, config_settings=settings)
+
+
+def distribution_filename(destination, artifact, kind):
+    """Require a direct distribution file owned by this build destination."""
+    destination = os.path.abspath(destination)
+    artifact = os.path.abspath(os.fspath(artifact))
+    root = os.path.realpath(destination)
+    try:
+        contained = os.path.commonpath((root, os.path.realpath(artifact))) == root
+    except ValueError:
+        contained = False
+    if (os.path.dirname(artifact) != destination or not contained or
+            not os.path.isfile(artifact)):
+        raise SystemExit(f"pip-purifier: {kind} backend did not produce an owned distribution file: {artifact}")
+    return os.path.basename(artifact)
+
+
+def source_distributions(directory, temporary, python, env, project, flags, constraints, settings, isolated):
+    """Keep each local project's wheel and sdist in an independent namespace."""
+    with tempfile.TemporaryDirectory(prefix="dist-", dir=temporary) as destination:
+        run_pip(["--python", python, "wheel", "--no-deps", "--wheel-dir", destination,
+                 *flags, directory], env, project)
+        wheels = [name for name in os.listdir(destination) if name.endswith(".whl")
+                  and os.path.isfile(os.path.join(destination, name))]
+        if len(wheels) != 1:
+            raise SystemExit("pip-purifier: wheel build did not produce exactly one wheel")
+        wheel = os.path.join(destination, wheels[0])
+        sdist = source_sdist(directory, destination, python, env, constraints, settings, isolated)
+        # Check both after the backend hook, which may have changed its output directory.
+        return (distribution_filename(destination, wheel, "wheel"),
+                distribution_filename(destination, sdist, "sdist"))
+
+
+def vcs_report_items(specs, items):
+    """Recover editable Git identity from pip's reported local checkout.
+
+    pip reports editable VCS installs as local directories rather than as
+    vcs_info. Verify the checkout's origin before using its actual HEAD;
+    the artifact fetch subsequently pins that commit from the declared URL.
+    """
+    items = list(items)
+    positions = {normalize(item["metadata"]["name"]): i for i, item in enumerate(items)}
+    for spec in specs:
+        if spec["kind"] != "vcs":
+            continue
+        vcs, repo, revision, params = pip_inputs.split_vcs_url(spec["url"])
+        position = positions.get(normalize(spec.get("name") or params.get("egg", "")))
+        if vcs != "git" or position is None:
+            continue
+        item = items[position]
+        info = item["download_info"]
+        if "vcs_info" in info or not info.get("dir_info", {}).get("editable"):
+            continue
+        local = urllib.parse.urlsplit(info["url"])
+        if local.scheme != "file" or local.netloc not in ("", "localhost"):
+            die("pip reported an editable Git install without a local checkout")
+        directory = urllib.parse.unquote(local.path)
+        try:
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args], stderr=subprocess.PIPE, text=True).strip()
+            origin = git("config", "--get", "remote.origin.url")
+            commit = git("rev-parse", "--verify", "HEAD")
+        except (OSError, subprocess.CalledProcessError):
+            die("could not verify pip's editable Git checkout")
+        if strip_credentials(origin).rstrip("/") != strip_credentials(repo).rstrip("/"):
+            die("pip's editable Git checkout origin does not match the declared repository")
+        identity = {"vcs": "git", "commit_id": commit}
+        if revision is not None:
+            identity["requested_revision"] = revision
+        items[position] = {**item, "download_info": {"url": repo, "vcs_info": identity}}
+    return items
 
 
 def report_items(path):
@@ -666,11 +882,10 @@ def native_lock(ns):
         os.makedirs(os.path.dirname(pylock), exist_ok=True)
         shutil.copyfile(tree_copy, pylock)
     args = ns.pip_args or default_args(project, pylock)
-    python = ns.python or PYTHON
-    pyver = subprocess.run(
-        [python, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"], capture_output=True, text=True, check=True
-    ).stdout.strip()
-    pip_version = subprocess.run(PIP + ["--version"], capture_output=True, text=True, check=True).stdout.split()[1]
+    python = local_python(project, lockfile, ns.python)
+    pyver, python_abi, python_abis = interpreter_profile(python)
+    activate_installer(python, required=["report"])
+    pip_version = subprocess.run(PIP + ["--version"], capture_output=True, text=True, check=True, env=installer_environment()).stdout.split()[1]
     here = current_system()
     systems = list(dict.fromkeys([*(ns.system or DEFAULT_SYSTEMS), here]))
     index, extra, links = upstream_indexes(project)
@@ -687,6 +902,9 @@ def native_lock(ns):
         pylocks = [rel for rel in rewriter.inputs if re.fullmatch(r"pylock(\.[^/]+)?\.toml", os.path.basename(rel))]
         if ns.update is not None and pylocks:
             die(f"{', '.join(pylocks)} pins the versions. Run `pip lock` with the project's requirements to update it, then `pip-purifier lock`.")
+
+        if "--build-constraint" in lock_args and "build-constraint" not in INSTALLER["capabilities"]:
+            die("the selected installer lacks build-constraint semantics; no target environment was created.")
 
         # The real install, on this system: pip resolves, downloads and
         # builds every sdist, so the files of the build environments pass
@@ -712,7 +930,7 @@ def native_lock(ns):
             subprocess.run([python, "-m", "venv", "--without-pip", venv], check=True)
         if not proxy.keep:
             run_pip(install, env, project)
-        items = report_items(report)
+        items = vcs_report_items(rewriter.specs, report_items(report))
         pins = {here: pins_of(items, proxy)}
 
         # The versions of packages built from a local directory, by the
@@ -746,16 +964,14 @@ def native_lock(ns):
             and not re.match(r"^(activate.*|Activate\.ps1)$", name)
         )
         packages = {}
+        build_flags, build_constraints, config_settings, build_isolated = source_build_options(lock_args)
         for rel in rewriter.dirs:
             directory = os.path.join(project, rel)
             if rel.startswith("..") or not any(os.path.exists(os.path.join(directory, n)) for n in ("pyproject.toml", "setup.py")):
                 continue
-            dist = os.path.join(tmp, "dist", rel.replace(os.sep, "_"))
-            run_pip(["--python", os.path.join(venv, "bin", "python"), "wheel", "--no-deps", "--wheel-dir", dist, directory], env, project)
-            subprocess.run([sys.executable, "-m", "build", "--sdist", "--outdir", dist, directory], env=env, cwd=project, check=True)
-            names = os.listdir(dist)
-            wheel = next(n for n in names if n.endswith(".whl"))
-            sdist = next(n for n in names if not n.endswith(".whl"))
+            wheel, sdist = source_distributions(
+                directory, tmp, os.path.join(venv, "bin", "python"), env, project,
+                build_flags, build_constraints, config_settings, build_isolated)
             name, version = dist_name_version(wheel)
             wheels = {}
             for system in dict.fromkeys([*DEFAULT_SYSTEMS, *systems, here]):
@@ -863,7 +1079,7 @@ def native_lock(ns):
             arch = SYSTEMS[system]
             report = os.path.join(tmp, f"report-{system}.json")
             ok = run_pip(
-                ["install", "--dry-run", "--ignore-installed", "--target", os.path.join(tmp, "t-" + system), "--report", report, *platform_args(arch, pyver), *lock_args],
+                ["install", "--dry-run", "--ignore-installed", "--target", os.path.join(tmp, "t-" + system), "--report", report, *platform_args(arch, pyver, python_abis), *lock_args],
                 env,
                 project,
                 check=False,
@@ -882,11 +1098,11 @@ def native_lock(ns):
             needed = {tuple(p.split("==")) for p in pins[system]} | built
             for name, version in sorted(needed):
                 files = [n for n in proxy.files if dist_name_version(n) == (name, version)]
-                if any(not f.endswith(".whl") or wheel_runs_on(f, arch, pyver) for f in files):
+                if any(not f.endswith(".whl") or wheel_runs_on(f, arch, pyver, python_abis) for f in files):
                     continue
                 dl = os.path.join(tmp, "dl")
                 spec = f"{name}=={version}"
-                if not run_pip(["download", "--no-deps", "--dest", dl, *platform_args(arch, pyver), spec], env, project, check=False):
+                if not run_pip(["download", "--no-deps", "--dest", dl, *platform_args(arch, pyver, python_abis), spec], env, project, check=False):
                     run_pip(["download", "--no-deps", "--no-binary=:all:", "--dest", dl, spec], env, project)
 
         if proxy.errors:
@@ -898,7 +1114,7 @@ def native_lock(ns):
             artifacts.pop(name, None)
 
         lock = {
-            "version": FORMAT_VERSION,
+            "version": ABI_FORMAT_VERSION if python_abi else FORMAT_VERSION,
             "pip": pip_version,
             "python": pyver,
             "args": args,
@@ -912,12 +1128,15 @@ def native_lock(ns):
             "shims": sorted(shims, key=lambda r: r["url"]),
             "artifacts": sorted(artifacts.values(), key=lambda a: a["path"]),
         }
+        if python_abi:
+            lock["pythonAbi"] = python_abi
         lock["hash"] = lock_hash(lock)
     # Sorted keys, so that the lockfile does not depend on which system the
     # lock ran on.
     with open(lockfile, "w") as f:
         json.dump(lock, f, indent=2, sort_keys=True)
         f.write("\n")
+    (Path(roots(lockfile)) / "runtime.json").write_text(json.dumps({"python": python, "installer": INSTALLER["identity"]}) + "\n")
     log(f"wrote {lockfile} with {len(lock['artifacts'])} downloads")
 
 
@@ -936,7 +1155,7 @@ def lock(ns):
     import project_inputs
     records = project_inputs.pin(references, previous, refresh=ns.update is not None)
     views = project_inputs.python_views(records, os.path.join(roots(lockfile), "project-inputs"))
-    configuration = python_bindings.write(views, [], Path(roots(lockfile)) / "bindings", python=ns.python or PYTHON) if views else None
+    configuration = python_bindings.write(views, [], Path(roots(lockfile)) / "bindings", python=local_python(project, lockfile, ns.python)) if views else None
     previous_environment = os.environ.get("PIP_PURIFIER_BINDINGS")
     try:
         if configuration:
@@ -972,7 +1191,7 @@ def update(ns):
 # Nix.
 
 
-def nix_build(project, lockfile, attr, out_link=None, pylock=None):
+def nix_build(project, lockfile, attr, out_link=None, pylock=None, python_tags=None):
     """Builds the output `attr` of buildPipProject (pkgs/cli/cli.nix) for the
     project, after checking its lockfile."""
     read_lock(project, lockfile, pylock)
@@ -995,6 +1214,8 @@ def nix_build(project, lockfile, attr, out_link=None, pylock=None):
         "attr",
         attr,
     ]
+    if python_tags is not None:
+        command += ["--argstr", "pythonTags", json.dumps(python_tags)]
     command += ["--out-link", out_link] if out_link else ["--no-out-link"]
     result = subprocess.run(command, stdout=subprocess.PIPE, text=True, check=False)
     if result.returncode != 0:
@@ -1012,10 +1233,14 @@ def roots(lockfile):
     return root
 
 
-def inputs_of(project, lockfile, pylock=None):
+def inputs_of(project, lockfile, pylock=None, *, target_python):
     """The project's offline inputs, kept alive by a garbage-collector root
     under .pip-purifier/."""
-    return nix_build(project, lockfile, "inputs", out_link=os.path.join(roots(lockfile), "inputs"), pylock=pylock)
+    from python_repository import interpreter_tags
+    target_python = os.path.abspath(shutil.which(target_python) or target_python)
+    tags = python_bindings.target_tags(interpreter_tags(target_python))
+    return nix_build(project, lockfile, "localInputs", out_link=os.path.join(roots(lockfile), "inputs"),
+                     pylock=pylock, python_tags=tags)
 
 
 def prefetch_command(ns):
@@ -1026,21 +1251,27 @@ def prefetch_command(ns):
     project = os.getcwd()
     lockfile = lockfile_path(ns, project)
     pylock = tool_lockfile_path(ns)
+    locked = read_lock(project, lockfile, pylock)
+    target_python = local_python(project, lockfile, venv=ns.venv)
+    python_identity.validate(target_python, locked["python"], locked.get("pythonAbi"))
+    driver = activate_installer(target_python, locked=locked, lockfile=lockfile)
     if ns.inputs:
         inputs = ns.inputs
     else:
-        inputs = inputs_of(project, lockfile, pylock)
+        inputs = inputs_of(project, lockfile, pylock, target_python=target_python)
         # The command package holds the installer SDK, nixpkgs and purifier
-        # library. The rooted inputs hold the selected target interpreter.
+        # library. The rooted inputs hold the locked artifacts.
         package = os.path.dirname(os.path.dirname(os.path.dirname(NIX_LIB)))
         subprocess.run(
             ["nix-store", "--add-root", os.path.join(roots(lockfile), "pip-purifier"), "--realise", package],
             stdout=subprocess.DEVNULL,
             check=True,
         )
-    target_python = os.path.join(inputs, "python", "bin", "python")
-    if not os.path.exists(target_python):
-        die("the offline inputs have no target Python. Rebuild them with this pip-purifier before using --inputs.")
+    required = ["wheelhouse", "args.json", "pins.txt", "sources.json", "repositories.json", "shims.json", "versions.json"]
+    if any(not os.path.exists(os.path.join(inputs, name)) for name in required):
+        die("the offline inputs are incomplete. Rebuild them with `pip-purifier prefetch`.")
+    if os.path.exists(os.path.join(inputs, "python-inputs.json")) and "producer-bindings" not in driver["capabilities"]:
+        driver = activate_installer(target_python, locked=locked, required=["producer-bindings"], lockfile=lockfile)
     venv = os.path.abspath(ns.venv)
     venv_python = os.path.join(venv, "bin", "python")
     if not os.path.exists(venv_python):
@@ -1051,19 +1282,31 @@ def prefetch_command(ns):
         existing = subprocess.check_output([venv_python, "-c", identity], text=True).strip()
         if existing != target:
             die(f"{venv} uses a different Python version or ABI than the lock. Recreate the virtual environment, or choose a new --venv path.")
-    offline.install(PIP, project, inputs, venv, editable=True, extra=ns.pip_args, pylock=pylock)
+    offline.install(PIP, project, inputs, venv, editable=True, extra=ns.pip_args, pylock=pylock, repair_native=False, installer_env=driver["environment"])
 
 
 def pip(ns):
     project = os.getcwd()
     lockfile = lockfile_path(ns, project)
+    from pip._internal.cli.main_parser import create_main_parser
+    options, _ = create_main_parser().parse_args(ns.pip_args)
+    target = options.python or local_python(project, lockfile)
+    pip_args = ns.pip_args if options.python else ["--python", target, *ns.pip_args]
+    if os.path.isdir(target):
+        target = os.path.join(target, "bin", "python")
     if not os.path.exists(lockfile):
         log("warning: no lockfile; pip is resolving dependencies impurely")
-        raise SystemExit(subprocess.run(PIP + ns.pip_args).returncode)
-    inputs = inputs_of(project, lockfile, tool_lockfile_path(ns))
+        activate_installer(target)
+        raise SystemExit(subprocess.run(PIP + pip_args, env=installer_environment()).returncode)
+    locked = read_lock(project, lockfile, tool_lockfile_path(ns))
+    if os.path.isdir(target):
+        target = os.path.join(target, "bin", "python")
+    python_identity.validate(target, locked["python"], locked.get("pythonAbi"))
+    activate_installer(target, locked=locked, lockfile=lockfile)
+    inputs = inputs_of(project, lockfile, tool_lockfile_path(ns), target_python=target)
     env = offline.environment(inputs)
     env["PIP_CONSTRAINT"] = os.path.join(inputs, "pins.txt")
-    offline.run_pip(PIP + ns.pip_args, project, env, stdout=True)
+    offline.run_pip(PIP + pip_args, project, installer_environment(env), stdout=True)
 
 
 def publish(ns):
@@ -1095,7 +1338,7 @@ def main():
     p.add_argument("--lockfile", help=lockfile_help)
     p.add_argument("--tool-lockfile", help=tool_lockfile_help)
     p.add_argument("--input", action="append", help="a Nix producer exposing projections.python")
-    p.add_argument("--python", help="the Python interpreter pip installs for (default: the Python of this package set)")
+    p.add_argument("--python", help="the Python interpreter pip installs for (default: the existing project environment or Python on PATH)")
     p.add_argument("--system", action="append", choices=list(SYSTEMS), help=system_help)
     p.add_argument("pip_args", nargs="*", metavar="-- PIP-ARG", help="the arguments of `pip install` (default: -r pylock.toml, -r requirements.txt, or .)")
     p.set_defaults(run=lock, update=None)
@@ -1107,7 +1350,7 @@ def main():
     p.add_argument("--lockfile", help=lockfile_help)
     p.add_argument("--tool-lockfile", help=tool_lockfile_help)
     p.add_argument("--input", action="append", help="a Nix producer exposing projections.python")
-    p.add_argument("--python", help="the Python interpreter pip installs for (default: the Python of this package set)")
+    p.add_argument("--python", help="the Python interpreter pip installs for (default: the existing project environment or Python on PATH)")
     p.add_argument("--system", action="append", choices=list(SYSTEMS), help=system_help)
     p.add_argument("update", nargs="*", metavar="PACKAGE", help="a package to update (default: every package)")
     p.set_defaults(run=update)

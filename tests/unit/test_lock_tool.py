@@ -8,6 +8,8 @@ import http.server
 import io
 import json
 import os
+import subprocess
+from pathlib import Path
 import tempfile
 import threading
 import unittest
@@ -15,6 +17,36 @@ import unittest.mock
 import urllib.request
 
 import pip_purifier as pp
+
+
+class EditableVcsReports(unittest.TestCase):
+    def test_editable_git_report_uses_verified_checkout_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repo), *args], stderr=subprocess.DEVNULL, text=True).strip()
+            git("init", "-q")
+            git("-c", "user.name=Probe", "-c", "user.email=probe@example.invalid", "commit", "--allow-empty", "-qm", "fixture")
+            origin = "https://example.invalid/owned.git"
+            git("remote", "add", "origin", origin)
+            item = {"metadata": {"name": "probe"}, "download_info": {
+                "url": repo.as_uri(), "dir_info": {"editable": True}}}
+            spec = {"kind": "vcs", "name": "probe", "url": "git+" + origin + "@main"}
+            result = pp.vcs_report_items([spec], [item])[0]
+            self.assertEqual(result["download_info"]["url"], origin)
+            self.assertEqual(result["download_info"]["vcs_info"]["commit_id"], git("rev-parse", "HEAD"))
+            self.assertEqual(result["download_info"]["vcs_info"]["requested_revision"], "main")
+            self.assertNotIn("vcs_info", item["download_info"])
+            git("remote", "set-url", "origin", "https://example.invalid/other.git")
+            with self.assertRaises(SystemExit):
+                pp.vcs_report_items([spec], [item])
+
+    def test_reported_vcs_identity_is_preserved(self):
+        item = {"metadata": {"name": "probe"}, "download_info": {
+            "url": "https://example.invalid/owned.git",
+            "vcs_info": {"vcs": "git", "commit_id": "a" * 40}}}
+        spec = {"kind": "vcs", "name": "probe", "url": "git+https://example.invalid/owned.git"}
+        self.assertEqual(pp.vcs_report_items([spec], [item]), [item])
 
 
 class Wheels(unittest.TestCase):
@@ -74,6 +106,58 @@ class Wheels(unittest.TestCase):
         self.assertIn("macosx_10_4_universal2", macos)
         self.assertNotIn("macosx_15_0_arm64", macos)
         self.assertFalse(any("linux" in arg for arg in macos))
+
+    def test_regular_and_free_threaded_abis_match_native_pip(self):
+        # Eight native pip dry runs on real regular/free-threaded 3.15
+        # establish this matrix; pure-Python wheels remain compatible with both.
+        profiles = [(None, {"cp315", "abi3"}), (["cp315t", "abi3t", "none"], {"cp315t", "abi3t"})]
+        for abis, accepted in profiles:
+            for abi in ["cp315", "cp315t", "abi3", "abi3t"]:
+                with self.subTest(profile=abis, abi=abi):
+                    name = f"probe-1.0-cp315-{abi}-linux_x86_64.whl"
+                    self.assertEqual(pp.wheel_runs_on(name, "x86_64", "3.15", abis), abi in accepted)
+            self.assertTrue(pp.wheel_runs_on("probe-1.0-py3-none-any.whl", "x86_64", "3.15", abis))
+        free = ["cp315t", "abi3t", "none"]
+        self.assertFalse(pp.wheel_runs_on("probe-1.0-cp314-abi3t-linux_x86_64.whl", "x86_64", "3.15", free))
+        args = pp.platform_args("aarch64", "3.15", free)
+        self.assertIn("cp315t", args)
+        self.assertIn("abi3t", args)
+        self.assertNotIn("cp315", args)
+        self.assertNotIn("abi3", args)
+
+
+class SourceBuildOptions(unittest.TestCase):
+    def test_build_options_survive_without_runtime_constraint_broadening(self):
+        flags, constraints, settings, isolated = pp.source_build_options([
+            "--constraint", "runtime.txt", "--build-constraint=build.txt",
+            "--config-settings", "feature=one", "-Cfeature=two", "--no-build-isolation", "."])
+        self.assertEqual(flags, ["--build-constraint", "build.txt", "--config-settings", "feature=one",
+                                 "--config-settings", "feature=two", "--no-build-isolation"])
+        self.assertEqual(constraints, ["build.txt"])
+        self.assertEqual(settings, {"feature": ["one", "two"]})
+        self.assertFalse(isolated)
+
+    def test_option_separator_preserves_literal_arguments(self):
+        self.assertEqual(pp.source_build_options(["--", "--build-constraint", "literal"]), ([], [], {}, True))
+
+
+class LocalRuntime(unittest.TestCase):
+    def test_project_runtime_and_recorded_runtime_precede_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "existing-python"
+            runtime.write_text("runtime fixture")
+            runtime.chmod(0o755)
+            state = root / ".pip-purifier"
+            state.mkdir()
+            (state / "runtime.json").write_text(json.dumps({"python": str(runtime)}))
+            with unittest.mock.patch.dict(os.environ, {"VIRTUAL_ENV": ""}):
+                self.assertEqual(pp.local_python(directory, str(root / pp.LOCKFILE)), str(runtime))
+                venv = root / ".venv/bin"
+                venv.mkdir(parents=True)
+                (venv / "python").symlink_to(runtime)
+                self.assertEqual(pp.local_python(directory, str(root / pp.LOCKFILE)), str(venv / "python"))
+                self.assertEqual(pp.local_python(directory, str(root / pp.LOCKFILE), str(runtime)), str(runtime))
 
 
 class Urls(unittest.TestCase):
@@ -170,6 +254,23 @@ class Lockfiles(unittest.TestCase):
         self.assertEqual(pp.read_lock(self.project, self.write(text)), self.lock)
         outside = self.write(text, os.path.join(self.tmp.name, "elsewhere.json"))
         self.assertEqual(pp.read_lock(self.project, outside), self.lock)
+
+    def test_format5_requires_abi_even_without_binary_wheels(self):
+        lock = dict(self.lock, version=5, python="3.15", pythonAbi="cp315t")
+        lock["hash"] = pp.lock_hash(lock)
+        self.assertEqual(pp.read_lock(self.project, self.write(json.dumps(lock))), lock)
+        for changed in [{"pythonAbi": None}, {"pythonAbi": "cp314t"}, {"pythonAbi": "abi3t"}]:
+            bad = dict(lock, **changed)
+            bad["hash"] = pp.lock_hash(bad)
+            self.fails(self.write(json.dumps(bad)), "ABI")
+        del lock["pythonAbi"]
+        lock["hash"] = pp.lock_hash(lock)
+        self.fails(self.write(json.dumps(lock)), "ABI")
+
+    def test_legacy_format4_cannot_smuggle_abi_identity(self):
+        lock = dict(self.lock, python="3.15", pythonAbi="cp315t")
+        lock["hash"] = pp.lock_hash(lock)
+        self.fails(self.write(json.dumps(lock)), "ABI")
 
     def test_reads_a_pylock_kept_outside_the_project(self):
         # The lockfile names pylock.toml, which only the outside copy holds.
