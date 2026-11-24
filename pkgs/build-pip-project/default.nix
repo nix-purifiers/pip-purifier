@@ -258,7 +258,9 @@ let
       buildPhase = ''
         runHook preBuild
         ${unpack}
-        ${python.interpreter} -m venv --without-pip $out
+        # A Python installation rather than a virtual environment, so that
+        # a virtual environment made from it can include its packages.
+        bash ${./make-prefix.sh} ${python} ${python.libPrefix} $out
         export PIP_PURIFIER_EXPORT_WHEELS=$out/nix-support/wheels
         ${pip.interpreter} ${scripts}/offline.py --project $work --inputs ${inputs} --venv $out --no-editable
         runHook postBuild

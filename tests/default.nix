@@ -317,6 +317,20 @@ in
 
   project = runs "project" project.programs.greet "hello attrs=25.3.0 docopt=0.6.2 yaml=6.0.3";
 
+  # A virtual environment made from the environment includes its packages
+  # with --system-site-packages, as a build that makes one for its tools
+  # expects, and leaves them out without it.
+  environment-venv-base = runCommand "pip-purifier-test-environment-venv-base" { } ''
+    ${project.environment}/bin/python -m venv --without-pip --system-site-packages with
+    with/bin/python -c 'import attrs, yaml; print(attrs.__version__, yaml.__version__)'
+    ${project.environment}/bin/python -m venv --without-pip without
+    if without/bin/python -c 'import attrs' 2>/dev/null; then
+      echo "a virtual environment without --system-site-packages imported attrs" >&2
+      exit 1
+    fi
+    touch $out
+  '';
+
   # The local project's sdist and wheel, under the names the lockfile
   # gives them, and the release that holds them.
   project-package = runCommand "pip-purifier-test-project-package" { } ''

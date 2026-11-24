@@ -177,8 +177,10 @@ packaging repository and call the builder directly:
   `pip-purifier publish` uploads;
 - `fetches`, the download entries of the lock, for SBOM, license and
   vulnerability tools;
-- `environment`, a virtual environment with everything the recorded
-  `pip install` installs, with editable installs made plain;
+- `environment`, a Python installation with everything the recorded
+  `pip install` installs, with editable installs made plain. A virtual
+  environment made from its `bin/python` with `--system-site-packages`
+  includes those packages;
 - `programs.<name>`, each program of that environment, for `nix run`;
 - `inputs`, the locked downloads for this system.
 
