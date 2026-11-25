@@ -300,6 +300,9 @@ let
     name: package:
     let
       wheel = package.wheels.${system};
+      # A bare directory name is a package requirement to pip. Mark relative
+      # project paths explicitly while preserving absolute source paths.
+      wheelSource = if lib.hasPrefix "/" package.path then package.path else "./${package.path}";
       drv = stdenv.mkDerivation (
         offlineEnv
         // {
@@ -315,7 +318,7 @@ let
             runHook preBuild
             ${unpack}
             ${pip.interpreter} ${scripts}/offline.py tag ${escapeShellArg package.path} ${escapeShellArg package.version}
-            ${pip.interpreter} ${scripts}/pip_runner.py wheel --no-deps --wheel-dir $out ${escapeShellArg package.path}
+            ${pip.interpreter} ${scripts}/pip_runner.py wheel --no-deps --wheel-dir $out ${escapeShellArg wheelSource}
             ${pip.interpreter} ${scripts}/build_sdist.py ${pip.interpreter} ${escapeShellArg package.path} $out
             ${pip.interpreter} ${scripts}/offline.py normalize-sdist $out/${escapeShellArg package.sdist}
             for f in ${escapeShellArg wheel} ${escapeShellArg package.sdist}; do
