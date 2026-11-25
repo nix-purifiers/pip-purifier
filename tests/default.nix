@@ -341,6 +341,11 @@ in
     touch $out
   '';
 
+  nested-local-wheel = import ./nested-local-wheel.nix {
+    inherit pkgs;
+    buildPipProject = build;
+  };
+
   # The download entries of the lock: the fixture locks a PyYAML wheel for
   # each system, which carries that system in `systems`, and a wheel for
   # every platform, which carries none.
