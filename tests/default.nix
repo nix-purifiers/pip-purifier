@@ -331,6 +331,8 @@ in
     touch $out
   '';
 
+  environment-header-install = import ./prefix-headers.nix { inherit pkgs; };
+
   # The local project's sdist and wheel, under the names the lockfile
   # gives them, and the release that holds them.
   project-package = runCommand "pip-purifier-test-project-package" { } ''

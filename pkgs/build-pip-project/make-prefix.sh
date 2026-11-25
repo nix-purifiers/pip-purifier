@@ -42,4 +42,21 @@ for entry in "$python/lib"/*; do
   name=${entry##*/}
   [ "$name" = "$libPrefix" ] || ln -s "$entry" "$out/lib/$name"
 done
-ln -s "$python/include" "$out/include"
+# Wheels can install headers below include/pythonX.Y (greenlet does).
+# Keep the directory hierarchy writable without copying or modifying SDK
+# headers. Linking the entire include directory would send those writes into
+# the immutable interpreter input.
+linkHeaders() {
+  local source=$1 destination=$2 entry name
+  mkdir -p "$destination"
+  for entry in "$source"/*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=${entry##*/}
+    if [ -d "$entry" ]; then
+      linkHeaders "$entry" "$destination/$name"
+    else
+      ln -s "$entry" "$destination/$name"
+    fi
+  done
+}
+linkHeaders "$python/include" "$out/include"
