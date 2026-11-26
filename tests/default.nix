@@ -472,6 +472,7 @@ in
   buildPipProject = build;
 }
 // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+  pypi-handler = import ./pypi-handler.nix { inherit pkgs overlay; };
   native-runtime = import ./native-runtime.nix { inherit pkgs; };
   native-runtime-paths = import ./native-runtime-paths.nix { inherit pkgs; };
 }
